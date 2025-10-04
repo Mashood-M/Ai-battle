@@ -1,13 +1,21 @@
 export interface Agent {
   id: string;
   name: string;
-  type: "stockfish" | "leela" | "alphazero" | "komodo" | "houdini";
+  type: "deepseek" | "grok" | "gemini" | "claude" | "gpt";
   version: string;
   elo: number;
   wins: number;
   losses: number;
   draws: number;
   avatar?: string;
+}
+
+export interface ApiKeys {
+  deepseek?: string;
+  grok?: string;
+  gemini?: string;
+  claude?: string;
+  openai?: string;
 }
 
 export interface Match {

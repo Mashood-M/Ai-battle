@@ -1,5 +1,5 @@
 import { Crown } from "lucide-react";
-import { Agent } from "@/types/chess";
+import { Agent, ApiKeys } from "@/types/chess";
 import {
   Select,
   SelectContent,
@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SettingsDialog } from "./SettingsDialog";
 
 interface HeaderProps {
   agents: Agent[];
@@ -14,6 +15,8 @@ interface HeaderProps {
   agent2: Agent | null;
   onAgent1Change: (agentId: string) => void;
   onAgent2Change: (agentId: string) => void;
+  apiKeys: ApiKeys;
+  onUpdateApiKey: (provider: keyof ApiKeys, key: string) => void;
 }
 
 export const Header = ({
@@ -22,6 +25,8 @@ export const Header = ({
   agent2,
   onAgent1Change,
   onAgent2Change,
+  apiKeys,
+  onUpdateApiKey,
 }: HeaderProps) => {
   return (
     <header className="border-b border-border bg-card/50 backdrop-blur-sm">
@@ -35,6 +40,7 @@ export const Header = ({
               <h1 className="text-xl font-bold text-foreground">AI Battle Chess</h1>
               <p className="text-xs text-muted-foreground">Watch AI Agents Duel</p>
             </div>
+            <SettingsDialog apiKeys={apiKeys} onUpdateApiKey={onUpdateApiKey} />
           </div>
 
           <div className="flex items-center gap-4">

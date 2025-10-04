@@ -5,13 +5,15 @@ import { Leaderboard } from "@/components/Leaderboard";
 import { MatchStatus } from "@/components/MatchStatus";
 import { AGENTS } from "@/data/agents";
 import { useChessMatch } from "@/hooks/useChessMatch";
+import { useApiKeys } from "@/hooks/useApiKeys";
 import { Agent } from "@/types/chess";
 
 const Index = () => {
   const [agent1, setAgent1] = useState<Agent | null>(AGENTS[0]);
   const [agent2, setAgent2] = useState<Agent | null>(AGENTS[1]);
+  const { apiKeys, updateApiKey } = useApiKeys();
   const { game, isPlaying, speed, result, togglePlayPause, resetGame, cycleSpeed } =
-    useChessMatch();
+    useChessMatch(agent1, agent2, apiKeys);
 
   const handleAgent1Change = (agentId: string) => {
     const agent = AGENTS.find((a) => a.id === agentId);
@@ -40,6 +42,8 @@ const Index = () => {
         agent2={agent2}
         onAgent1Change={handleAgent1Change}
         onAgent2Change={handleAgent2Change}
+        apiKeys={apiKeys}
+        onUpdateApiKey={updateApiKey}
       />
 
       <div className="flex flex-1 overflow-hidden">

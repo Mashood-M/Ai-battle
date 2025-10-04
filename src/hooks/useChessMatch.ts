@@ -1,17 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { Chess } from "chess.js";
-import { Agent, MatchSpeed } from "@/types/chess";
+import { Agent, MatchSpeed, ApiKeys } from "@/types/chess";
+import { aiChessService } from "@/services/aiChessService";
 
-export const useChessMatch = () => {
+export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKeys: ApiKeys) => {
   const [game, setGame] = useState(new Chess());
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState<MatchSpeed>("normal");
   const [result, setResult] = useState<string | null>(null);
+  const [isThinking, setIsThinking] = useState(false);
 
-  const makeRandomMove = useCallback(() => {
+  const makeAiMove = useCallback(async () => {
+    if (!agent1 || !agent2) return;
+
     const moves = game.moves();
     if (moves.length === 0) {
-      // Game over
       if (game.isCheckmate()) {
         setResult(game.turn() === "w" ? "Black wins by checkmate!" : "White wins by checkmate!");
       } else if (game.isDraw()) {
@@ -23,27 +26,33 @@ export const useChessMatch = () => {
       return;
     }
 
-    const randomMove = moves[Math.floor(Math.random() * moves.length)];
-    const newGame = new Chess(game.fen());
-    newGame.move(randomMove);
-    setGame(newGame);
-  }, [game]);
+    setIsThinking(true);
+    const currentAgent = game.turn() === "w" ? agent1 : agent2;
+    const move = await aiChessService.getMove(currentAgent, game, apiKeys);
+    
+    if (move) {
+      const newGame = new Chess(game.fen());
+      newGame.move(move);
+      setGame(newGame);
+    }
+    setIsThinking(false);
+  }, [game, agent1, agent2, apiKeys]);
 
   useEffect(() => {
-    if (!isPlaying || result) return;
+    if (!isPlaying || result || isThinking) return;
 
     const delays = {
-      normal: 1000,
-      fast: 300,
-      instant: 50,
+      normal: 2000,
+      fast: 1000,
+      instant: 500,
     };
 
     const timer = setTimeout(() => {
-      makeRandomMove();
+      makeAiMove();
     }, delays[speed]);
 
     return () => clearTimeout(timer);
-  }, [isPlaying, speed, result, makeRandomMove]);
+  }, [isPlaying, speed, result, makeAiMove, isThinking]);
 
   const togglePlayPause = () => {
     setIsPlaying(!isPlaying);
@@ -68,6 +77,7 @@ export const useChessMatch = () => {
     isPlaying,
     speed,
     result,
+    isThinking,
     togglePlayPause,
     resetGame,
     cycleSpeed,
