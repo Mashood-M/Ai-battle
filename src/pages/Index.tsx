@@ -11,7 +11,7 @@ import { Agent } from "@/types/chess";
 const Index = () => {
   const [agent1, setAgent1] = useState<Agent | null>(AGENTS[0]);
   const [agent2, setAgent2] = useState<Agent | null>(AGENTS[1]);
-  const { apiKeys, updateApiKey } = useApiKeys();
+  const { apiKeys, updateApiKey, setAllApiKeys } = useApiKeys();
   const { game, isPlaying, speed, result, togglePlayPause, resetGame, cycleSpeed } =
     useChessMatch(agent1, agent2, apiKeys);
 
@@ -44,6 +44,7 @@ const Index = () => {
         onAgent2Change={handleAgent2Change}
         apiKeys={apiKeys}
         onUpdateApiKey={updateApiKey}
+        onSetAllApiKeys={setAllApiKeys}
       />
 
       <div className="flex flex-1 overflow-hidden">

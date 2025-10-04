@@ -28,12 +28,29 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
 
     setIsThinking(true);
     const currentAgent = game.turn() === "w" ? agent1 : agent2;
+    
+    console.log("🏁 Starting AI move calculation:", {
+      currentAgent: currentAgent.name,
+      turn: game.turn(),
+      moveNumber: Math.floor(game.history().length / 2) + 1,
+      fen: game.fen(),
+      timestamp: new Date().toISOString()
+    });
+
     const move = await aiChessService.getMove(currentAgent, game, apiKeys);
     
     if (move) {
       const newGame = new Chess(game.fen());
       newGame.move(move);
       setGame(newGame);
+      
+      console.log("🎮 Move executed:", {
+        agent: currentAgent.name,
+        move,
+        newFen: newGame.fen(),
+        gameHistory: newGame.history(),
+        timestamp: new Date().toISOString()
+      });
     }
     setIsThinking(false);
   }, [game, agent1, agent2, apiKeys]);
@@ -55,10 +72,24 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   }, [isPlaying, speed, result, makeAiMove, isThinking]);
 
   const togglePlayPause = () => {
-    setIsPlaying(!isPlaying);
+    const newPlayingState = !isPlaying;
+    setIsPlaying(newPlayingState);
+    
+    console.log("🎮 Game state changed:", {
+      isPlaying: newPlayingState,
+      agent1: agent1?.name,
+      agent2: agent2?.name,
+      timestamp: new Date().toISOString()
+    });
   };
 
   const resetGame = () => {
+    console.log("🔄 Resetting game:", {
+      previousFen: game.fen(),
+      previousHistory: game.history(),
+      timestamp: new Date().toISOString()
+    });
+    
     setGame(new Chess());
     setIsPlaying(false);
     setResult(null);

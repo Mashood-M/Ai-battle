@@ -17,6 +17,7 @@ interface HeaderProps {
   onAgent2Change: (agentId: string) => void;
   apiKeys: ApiKeys;
   onUpdateApiKey: (provider: keyof ApiKeys, key: string) => void;
+  onSetAllApiKeys?: () => void;
 }
 
 export const Header = ({
@@ -27,6 +28,7 @@ export const Header = ({
   onAgent2Change,
   apiKeys,
   onUpdateApiKey,
+  onSetAllApiKeys,
 }: HeaderProps) => {
   return (
     <header className="border-b border-border bg-card/50 backdrop-blur-sm">
@@ -39,8 +41,21 @@ export const Header = ({
             <div>
               <h1 className="text-xl font-bold text-foreground">AI Battle Chess</h1>
               <p className="text-xs text-muted-foreground">Watch AI Agents Duel</p>
+              <div className="flex gap-1 mt-1">
+                {Object.entries(apiKeys).map(([provider, key]) => (
+                  <span
+                    key={provider}
+                    className={`text-xs px-1 py-0.5 rounded ${
+                      key ? "bg-green-500/20 text-green-600" : "bg-red-500/20 text-red-600"
+                    }`}
+                    title={`${provider}: ${key ? "Set" : "Not Set"}`}
+                  >
+                    {provider}
+                  </span>
+                ))}
+              </div>
             </div>
-            <SettingsDialog apiKeys={apiKeys} onUpdateApiKey={onUpdateApiKey} />
+             <SettingsDialog apiKeys={apiKeys} onUpdateApiKey={onUpdateApiKey} onSetAllApiKeys={onSetAllApiKeys} />
           </div>
 
           <div className="flex items-center gap-4">
