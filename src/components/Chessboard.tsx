@@ -3,29 +3,49 @@ import { Chess, Square } from "chess.js";
 interface ChessboardProps {
   game: Chess;
   boardWidth?: number;
+  showCoordinates?: boolean;
+  highlightLastMove?: boolean;
 }
 
 const pieceSymbols: { [key: string]: string } = {
-  wp: "♙",
-  wn: "♘",
-  wb: "♗",
-  wr: "♖",
-  wq: "♕",
-  wk: "♔",
-  bp: "♟",
-  bn: "♞",
-  bb: "♝",
-  br: "♜",
-  bq: "♛",
-  bk: "♚",
+  wp: "♟", // White pieces now use black symbols
+  wn: "♞",
+  wb: "♝",
+  wr: "♜",
+  wq: "♛",
+  wk: "♚",
+  bp: "♙", // Black pieces now use white symbols
+  bn: "♘",
+  bb: "♗",
+  br: "♖",
+  bq: "♕",
+  bk: "♔",
 };
 
-export const Chessboard = ({ game, boardWidth = 600 }: ChessboardProps) => {
+export const Chessboard = ({ 
+  game, 
+  boardWidth = 600, 
+  showCoordinates = true, 
+  highlightLastMove = true 
+}: ChessboardProps) => {
   const board = game.board();
   const squareSize = boardWidth / 8;
+  const history = game.history({ verbose: true });
+  const lastMove = history.length > 0 ? history[history.length - 1] : null;
 
   const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ranks = ["8", "7", "6", "5", "4", "3", "2", "1"];
+
+  const isLastMoveSquare = (square: string) => {
+    if (!highlightLastMove || !lastMove) return false;
+    return square === lastMove.from || square === lastMove.to;
+  };
+
+  const isInCheck = (square: string) => {
+    const piece = game.get(square as Square);
+    if (!piece || piece.type !== 'k') return false;
+    return game.isCheck();
+  };
 
   return (
     <div className="flex items-center justify-center p-8">
@@ -41,11 +61,18 @@ export const Chessboard = ({ game, boardWidth = 600 }: ChessboardProps) => {
                 const square = `${file}${rank}` as Square;
                 const piece = game.get(square);
 
+                const isLastMove = isLastMoveSquare(square);
+                const isCheck = isInCheck(square);
+                
                 return (
                   <div
                     key={square}
-                    className={`flex items-center justify-center ${
+                    className={`relative flex items-center justify-center ${
                       isLight ? "bg-board-light" : "bg-board-dark"
+                    } ${
+                      isLastMove ? "ring-2 ring-yellow-400 ring-opacity-75" : ""
+                    } ${
+                      isCheck ? "ring-2 ring-red-500 ring-opacity-75" : ""
                     }`}
                     style={{
                       width: squareSize,
@@ -56,17 +83,24 @@ export const Chessboard = ({ game, boardWidth = 600 }: ChessboardProps) => {
                     {piece && (
                       <span
                         className={`select-none ${
-                          piece.color === "w" ? "text-gray-900" : "text-gray-100"
+                          piece.color === "w" ? "text-gray-100" : "text-gray-900"
                         }`}
                         style={{
                           textShadow:
                             piece.color === "w"
-                              ? "0 0 2px rgba(0,0,0,0.3)"
-                              : "0 0 2px rgba(0,0,0,0.8)",
+                              ? "0 0 2px rgba(0,0,0,0.8)"
+                              : "0 0 2px rgba(0,0,0,0.3)",
                         }}
                       >
                         {pieceSymbols[`${piece.color}${piece.type}`]}
                       </span>
+                    )}
+                    
+                    {/* Show coordinates */}
+                    {showCoordinates && (
+                      <div className="absolute top-0 left-0 text-xs text-muted-foreground opacity-50 pointer-events-none">
+                        {square}
+                      </div>
                     )}
                   </div>
                 );
