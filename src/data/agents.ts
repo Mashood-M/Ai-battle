@@ -14,7 +14,7 @@ export const AGENTS: Agent[] = [
   {
     id: "gpt-oss-20b",
     name: "GPT-OSS-20B",
-    type: "grok",
+    type: "gptoss",
     version: "20B",
     elo: 3500,
     wins: 0,
@@ -24,7 +24,7 @@ export const AGENTS: Agent[] = [
   {
     id: "mistral-small-3.2",
     name: "Mistral Small 3.2",
-    type: "claude",
+    type: "mistral",
     version: "3.2",
     elo: 3500,
     wins: 0,

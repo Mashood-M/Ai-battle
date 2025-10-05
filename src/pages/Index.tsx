@@ -3,7 +3,7 @@ import { Header } from "@/components/Header";
 import { Chessboard } from "@/components/Chessboard";
 import { GameStatus } from "@/components/GameStatus";
 import { MatchStatus } from "@/components/MatchStatus";
-import { RateLimitNotification } from "@/components/RateLimitNotification";
+// Rate limit notification removed
 import { GameStopNotification } from "@/components/GameStopNotification";
 import { AGENTS } from "@/data/agents";
 import { useChessMatch } from "@/hooks/useChessMatch";
@@ -14,28 +14,12 @@ import { aiChessService } from "@/services/aiChessService";
 const Index = () => {
   const [agent1, setAgent1] = useState<Agent | null>(AGENTS[0]);
   const [agent2, setAgent2] = useState<Agent | null>(AGENTS[1]);
-  const [rateLimitStatus, setRateLimitStatus] = useState({ exceeded: false, resetTime: null });
-  const { apiKeys, updateApiKey, setAllApiKeys } = useApiKeys();
+  // Rate limit status removed
+  const { apiKeys } = useApiKeys();
   const { game, isPlaying, speed, result, moveTimes, currentMoveStart, currentThinkingAgent, gameStopReason, isThinking, togglePlayPause, resetGame, cycleSpeed } =
     useChessMatch(agent1, agent2, apiKeys);
 
-  // Check rate limit status periodically
-  useEffect(() => {
-    const checkRateLimit = () => {
-      const status = aiChessService.getRateLimitStatus();
-      setRateLimitStatus(status);
-    };
-
-    checkRateLimit();
-    const interval = setInterval(checkRateLimit, 5000); // Check every 5 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleResetRateLimit = () => {
-    aiChessService.resetRateLimitStatus();
-    setRateLimitStatus({ exceeded: false, resetTime: null });
-  };
+  // Rate limit polling removed
 
   const handleAgent1Change = (agentId: string) => {
     const agent = AGENTS.find((a) => a.id === agentId);
@@ -65,8 +49,6 @@ const Index = () => {
         onAgent1Change={handleAgent1Change}
         onAgent2Change={handleAgent2Change}
         apiKeys={apiKeys}
-        onUpdateApiKey={updateApiKey}
-        onSetAllApiKeys={setAllApiKeys}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -80,11 +62,7 @@ const Index = () => {
               reason={gameStopReason}
               onReset={resetGame}
             />
-            <RateLimitNotification 
-              isExceeded={rateLimitStatus.exceeded}
-              resetTime={rateLimitStatus.resetTime}
-              onReset={handleResetRateLimit}
-            />
+            {/* Rate limit notification removed */}
             <GameStatus 
               game={game} 
               moveTimes={moveTimes} 

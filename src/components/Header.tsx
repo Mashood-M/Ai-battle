@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SettingsDialog } from "./SettingsDialog";
+// Settings dialog removed per requirements
 
 interface HeaderProps {
   agents: Agent[];
@@ -16,8 +16,6 @@ interface HeaderProps {
   onAgent1Change: (agentId: string) => void;
   onAgent2Change: (agentId: string) => void;
   apiKeys: ApiKeys;
-  onUpdateApiKey: (provider: keyof ApiKeys, key: string) => void;
-  onSetAllApiKeys?: () => void;
 }
 
 export const Header = ({
@@ -27,8 +25,6 @@ export const Header = ({
   onAgent1Change,
   onAgent2Change,
   apiKeys,
-  onUpdateApiKey,
-  onSetAllApiKeys,
 }: HeaderProps) => {
   return (
     <header className="border-b border-border bg-card/50 backdrop-blur-sm">
@@ -55,7 +51,6 @@ export const Header = ({
                 ))}
               </div>
             </div>
-             <SettingsDialog apiKeys={apiKeys} onUpdateApiKey={onUpdateApiKey} onSetAllApiKeys={onSetAllApiKeys} />
           </div>
 
           <div className="flex items-center gap-4">

@@ -4,6 +4,87 @@ import { Agent, ApiKeys } from "@/types/chess";
 export class AiChessService {
   private rateLimitExceeded = false;
   private rateLimitResetTime: number | null = null;
+  private lastOpenRouterKey: string | null = null;
+  private async callChatAnywhere(fen: string, apiKey: string, model: string): Promise<string> {
+    console.log("🤖 ChatAnywhere API Call:", {
+      fen,
+      model,
+      apiKey: apiKey.substring(0, 10) + "...",
+      timestamp: new Date().toISOString()
+    });
+
+    const response = await fetch("https://api.chatanywhere.tech/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          {
+            role: "system",
+            content: `You are a professional chess engine that strictly follows the complete rules of chess. You must respond with ONLY the best legal move in standard algebraic notation.
+
+CHESS RULES YOU MUST FOLLOW:
+1. OBJECTIVE: Checkmate the opponent's king
+2. PIECE MOVEMENTS:
+   - King: One square in any direction (cannot move into check)
+   - Queen: Any number of squares in any direction
+   - Rook: Any number of squares vertically or horizontally
+   - Bishop: Any number of squares diagonally
+   - Knight: L-shape (2+1 squares), can jump over pieces
+   - Pawn: Forward 1 square (2 on first move), captures diagonally
+
+3. SPECIAL RULES:
+   - Castling: King moves 2 squares toward rook, rook moves next to king (O-O for kingside, O-O-O for queenside)
+   - En passant: Capture pawn that moved 2 squares as if it moved 1
+   - Pawn promotion: Must promote to Queen, Rook, Bishop, or Knight when reaching 8th rank
+   - Check: King under attack, must respond immediately
+   - Checkmate: King in check with no legal moves = game over
+   - Stalemate: King not in check but no legal moves = draw
+
+4. ILLEGAL MOVES: Never move into check or make illegal moves
+5. NOTATION: Use standard algebraic notation (e.g., 'e4', 'Nf3', 'O-O', 'O-O-O', 'exd5', 'Qh5+', 'Nxf7#')
+
+Respond with ONLY the move in algebraic notation. No explanations or analysis.`,
+          },
+          {
+            role: "user",
+            content: `FEN: ${fen}\nWhat is your move?`,
+          },
+        ],
+        temperature: 0.7,
+      }),
+    });
+
+    console.log("📡 ChatAnywhere Response Status:", response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ ChatAnywhere API Error:", errorText);
+      throw new Error(`ChatAnywhere API error: ${response.status} - ${errorText}`);
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (error) {
+      console.error("❌ JSON Parse Error:", error);
+      throw new Error(`Invalid JSON response from ChatAnywhere API: ${error.message}`);
+    }
+
+    const move = data.choices[0].message.content.trim();
+
+    console.log("✅ ChatAnywhere Response:", {
+      model,
+      rawResponse: data,
+      extractedMove: move,
+      timestamp: new Date().toISOString()
+    });
+
+    return move;
+  }
   private async callOpenRouter(fen: string, apiKey: string, model: string): Promise<string> {
     console.log("🤖 OpenRouter API Call:", {
       fen,
@@ -64,9 +145,17 @@ Respond with ONLY the move in algebraic notation. No explanations or analysis.`,
       console.error("❌ OpenRouter API Error:", errorText);
       
       // Check for rate limit headers
-      const rateLimitReset = response.headers.get('X-RateLimit-Reset');
-      if (rateLimitReset) {
-        this.rateLimitResetTime = parseInt(rateLimitReset) * 1000; // Convert to milliseconds
+      const headerReset = response.headers.get('X-RateLimit-Reset') || response.headers.get('x-ratelimit-reset');
+      const retryAfter = response.headers.get('Retry-After') || response.headers.get('retry-after');
+      if (headerReset && !Number.isNaN(parseInt(headerReset))) {
+        // Header is unix seconds
+        this.rateLimitResetTime = parseInt(headerReset) * 1000;
+      } else if (retryAfter && !Number.isNaN(parseInt(retryAfter))) {
+        // Retry-After is delta seconds
+        this.rateLimitResetTime = Date.now() + parseInt(retryAfter) * 1000;
+      }
+      if (response.status === 429) {
+        this.rateLimitExceeded = true;
       }
       
       throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
@@ -170,9 +259,9 @@ What is your move? Respond with ONLY the move in algebraic notation. No explanat
   }
 
   private shouldSkipApiCall(agent: Agent): boolean {
-    // Skip OpenRouter calls if rate limit exceeded
-    if (this.rateLimitExceeded && (agent.type === 'deepseek' || agent.type === 'grok' || agent.type === 'claude' || agent.type === 'gpt')) {
-      return true;
+    // Do not globally block; always attempt calls.
+    if (this.rateLimitExceeded && this.rateLimitResetTime && Date.now() >= this.rateLimitResetTime) {
+      this.resetRateLimitStatus();
     }
     return false;
   }
@@ -183,6 +272,12 @@ What is your move? Respond with ONLY the move in algebraic notation. No explanat
     let apiKey: string | undefined;
     let moveText: string;
     let model: string;
+
+    // If OpenRouter key changed, clear any prior rate-limit state
+    if (apiKeys.openrouter && apiKeys.openrouter !== this.lastOpenRouterKey) {
+      this.lastOpenRouterKey = apiKeys.openrouter;
+      this.resetRateLimitStatus();
+    }
 
     console.log("🎯 Getting move for agent:", {
       agentName: agent.name,
@@ -209,33 +304,27 @@ What is your move? Respond with ONLY the move in algebraic notation. No explanat
     try {
       switch (agent.type) {
         case "deepseek":
-          apiKey = apiKeys.deepseek;
-          if (!apiKey) throw new Error("DeepSeek API key not set");
+          apiKey = apiKeys.openrouter;
+          if (!apiKey) throw new Error("OpenRouter API key not set");
           model = "deepseek/deepseek-chat-v3.1:free";
           moveText = await this.callOpenRouter(fen, apiKey, model);
           break;
-        case "grok":
-          apiKey = apiKeys.grok;
-          if (!apiKey) throw new Error("OpenAI API key not set");
+        case "gptoss":
+          apiKey = apiKeys.openrouter;
+          if (!apiKey) throw new Error("OpenRouter API key not set");
           model = "openai/gpt-oss-20b:free";
+          moveText = await this.callOpenRouter(fen, apiKey, model);
+          break;
+        case "mistral":
+          apiKey = apiKeys.openrouter;
+          if (!apiKey) throw new Error("OpenRouter API key not set");
+          model = "mistralai/mistral-small-3.2-24b-instruct:free";
           moveText = await this.callOpenRouter(fen, apiKey, model);
           break;
         case "gemini":
           apiKey = apiKeys.gemini;
           if (!apiKey) throw new Error("Google Gemini API key not set");
           moveText = await this.callGoogleGemini(fen, apiKey);
-          break;
-        case "claude":
-          apiKey = apiKeys.claude;
-          if (!apiKey) throw new Error("Mistral API key not set");
-          model = "mistralai/mistral-small-3.2-24b-instruct:free";
-          moveText = await this.callOpenRouter(fen, apiKey, model);
-          break;
-        case "gpt":
-          apiKey = apiKeys.openai;
-          if (!apiKey) throw new Error("DeepSeek API key not set");
-          model = "deepseek/deepseek-chat-v3.1:free";
-          moveText = await this.callOpenRouter(fen, apiKey, model);
           break;
         default:
           throw new Error(`Unknown agent type: ${agent.type}`);

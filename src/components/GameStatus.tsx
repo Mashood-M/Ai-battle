@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Chess } from "chess.js";
+import { useEffect, useState } from "react";
 
 interface GameStatusProps {
   game: Chess;
@@ -11,6 +12,11 @@ interface GameStatusProps {
 }
 
 export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking }: GameStatusProps) => {
+  const [now, setNow] = useState<number>(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
   const history = game.history({ verbose: true });
   const lastMove = history.length > 0 ? history[history.length - 1] : null;
   
@@ -24,7 +30,7 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
   })).sort((a, b) => a.averageTime - b.averageTime);
 
   // Get current thinking time in seconds
-  const currentThinkingTime = currentMoveStart ? (Date.now() - currentMoveStart) / 1000 : 0;
+  const currentThinkingTime = currentMoveStart ? (now - currentMoveStart) / 1000 : 0;
 
   return (
     <div className="space-y-4">

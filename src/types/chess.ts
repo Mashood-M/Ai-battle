@@ -1,7 +1,7 @@
 export interface Agent {
   id: string;
   name: string;
-  type: "deepseek" | "grok" | "gemini" | "claude" | "gpt";
+  type: "deepseek" | "gptoss" | "mistral" | "gemini";
   version: string;
   elo: number;
   wins: number;
@@ -11,11 +11,8 @@ export interface Agent {
 }
 
 export interface ApiKeys {
-  deepseek?: string;
-  grok?: string;
-  gemini?: string;
-  claude?: string;
-  openai?: string;
+  openrouter?: string; // used for DeepSeek, GPT-OSS-20B, Mistral (via OpenRouter)
+  gemini?: string; // Google AI Studio key
 }
 
 export interface Match {
