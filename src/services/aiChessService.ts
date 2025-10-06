@@ -5,138 +5,52 @@ export class AiChessService {
   private rateLimitExceeded = false;
   private rateLimitResetTime: number | null = null;
   private lastOpenRouterKey: string | null = null;
-  private async callChatAnywhere(fen: string, apiKey: string, model: string): Promise<string> {
-    console.log("🤖 ChatAnywhere API Call:", {
-      fen,
-      model,
-      apiKey: apiKey.substring(0, 10) + "...",
-      timestamp: new Date().toISOString()
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number = 15000): Promise<T> {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`API call timeout after ${timeoutMs}ms`)), timeoutMs);
     });
-
-    const response = await fetch("https://api.chatanywhere.tech/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: "system",
-            content: `You are a professional chess engine that strictly follows the complete rules of chess. You must respond with ONLY the best legal move in standard algebraic notation.
-
-CHESS RULES YOU MUST FOLLOW:
-1. OBJECTIVE: Checkmate the opponent's king
-2. PIECE MOVEMENTS:
-   - King: One square in any direction (cannot move into check)
-   - Queen: Any number of squares in any direction
-   - Rook: Any number of squares vertically or horizontally
-   - Bishop: Any number of squares diagonally
-   - Knight: L-shape (2+1 squares), can jump over pieces
-   - Pawn: Forward 1 square (2 on first move), captures diagonally
-
-3. SPECIAL RULES:
-   - Castling: King moves 2 squares toward rook, rook moves next to king (O-O for kingside, O-O-O for queenside)
-   - En passant: Capture pawn that moved 2 squares as if it moved 1
-   - Pawn promotion: Must promote to Queen, Rook, Bishop, or Knight when reaching 8th rank
-   - Check: King under attack, must respond immediately
-   - Checkmate: King in check with no legal moves = game over
-   - Stalemate: King not in check but no legal moves = draw
-
-4. ILLEGAL MOVES: Never move into check or make illegal moves
-5. NOTATION: Use standard algebraic notation (e.g., 'e4', 'Nf3', 'O-O', 'O-O-O', 'exd5', 'Qh5+', 'Nxf7#')
-
-Respond with ONLY the move in algebraic notation. No explanations or analysis.`,
-          },
-          {
-            role: "user",
-            content: `FEN: ${fen}\nWhat is your move?`,
-          },
-        ],
-        temperature: 0.7,
-      }),
-    });
-
-    console.log("📡 ChatAnywhere Response Status:", response.status);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ ChatAnywhere API Error:", errorText);
-      throw new Error(`ChatAnywhere API error: ${response.status} - ${errorText}`);
-    }
-
-    let data;
-    try {
-      data = await response.json();
-    } catch (error) {
-      console.error("❌ JSON Parse Error:", error);
-      throw new Error(`Invalid JSON response from ChatAnywhere API: ${error.message}`);
-    }
-
-    const move = data.choices[0].message.content.trim();
-
-    console.log("✅ ChatAnywhere Response:", {
-      model,
-      rawResponse: data,
-      extractedMove: move,
-      timestamp: new Date().toISOString()
-    });
-
-    return move;
+    
+    return Promise.race([promise, timeoutPromise]);
   }
-  private async callOpenRouter(fen: string, apiKey: string, model: string): Promise<string> {
+  private async callOpenRouter(fen: string, apiKey: string, model: string, retryCount: number = 0): Promise<string> {
+    // Sanitize API key in case .env values include quotes
+    const sanitizedKey = (apiKey || "").trim().replace(/^['"]+|['"]+$/g, "");
+
     console.log("🤖 OpenRouter API Call:", {
       fen,
       model,
-      apiKey: apiKey.substring(0, 10) + "...",
+      apiKey: sanitizedKey.substring(0, 10) + "...",
       timestamp: new Date().toISOString()
     });
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await this.withTimeout(fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
+      referrer: typeof window !== 'undefined' ? window.location.origin : undefined,
+      referrerPolicy: 'strict-origin-when-cross-origin',
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${sanitizedKey}`,
+        // OpenRouter recommends setting a referer or title
+        "HTTP-Referer": typeof window !== 'undefined' ? window.location.origin : "bot-battles",
+        "X-Title": "Bot Battles Live",
       },
       body: JSON.stringify({
         model: model,
         messages: [
           {
             role: "system",
-            content: `You are a professional chess engine that strictly follows the complete rules of chess. You must respond with ONLY the best legal move in standard algebraic notation.
-
-CHESS RULES YOU MUST FOLLOW:
-1. OBJECTIVE: Checkmate the opponent's king
-2. PIECE MOVEMENTS:
-   - King: One square in any direction (cannot move into check)
-   - Queen: Any number of squares in any direction
-   - Rook: Any number of squares vertically or horizontally
-   - Bishop: Any number of squares diagonally
-   - Knight: L-shape (2+1 squares), can jump over pieces
-   - Pawn: Forward 1 square (2 on first move), captures diagonally
-
-3. SPECIAL RULES:
-   - Castling: King moves 2 squares toward rook, rook moves next to king (O-O for kingside, O-O-O for queenside)
-   - En passant: Capture pawn that moved 2 squares as if it moved 1
-   - Pawn promotion: Must promote to Queen, Rook, Bishop, or Knight when reaching 8th rank
-   - Check: King under attack, must respond immediately
-   - Checkmate: King in check with no legal moves = game over
-   - Stalemate: King not in check but no legal moves = draw
-
-4. ILLEGAL MOVES: Never move into check or make illegal moves
-5. NOTATION: Use standard algebraic notation (e.g., 'e4', 'Nf3', 'O-O', 'O-O-O', 'exd5', 'Qh5+', 'Nxf7#')
-
-Respond with ONLY the move in algebraic notation. No explanations or analysis.`,
+            content: `You are a chess engine. Give ONLY the move in algebraic notation. Examples: e4, Nf3, O-O, exd5. No words, just the move.`,
           },
           {
             role: "user",
-            content: `FEN: ${fen}\nWhat is your move?`,
+            content: `FEN: ${fen}\n\nBest move:`,
           },
         ],
-        temperature: 0.7,
+        temperature: 0.3,
+        max_tokens: 100,
       }),
-    });
+    }), 15000);
 
     console.log("📡 OpenRouter Response Status:", response.status);
     
@@ -163,22 +77,122 @@ Respond with ONLY the move in algebraic notation. No explanations or analysis.`,
 
     let data;
     try {
-      data = await response.json();
+      const responseText = await response.text();
+      if (!responseText.trim()) {
+        console.error("❌ Empty response from OpenRouter API");
+        throw new Error("Empty response from OpenRouter API");
+      }
+      data = JSON.parse(responseText);
     } catch (error) {
       console.error("❌ JSON Parse Error:", error);
       throw new Error(`Invalid JSON response from OpenRouter API: ${error.message}`);
     }
     
-    const move = data.choices[0].message.content.trim();
+    // Validate OpenRouter response structure
+    if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.error("❌ Invalid OpenRouter response structure:", data);
+      throw new Error("Invalid response structure from OpenRouter API");
+    }
+    
+    const choice = data.choices[0];
+    if (!choice.message || !choice.message.content) {
+      console.error("❌ Invalid OpenRouter choice structure:", choice);
+      throw new Error("Invalid choice structure from OpenRouter API");
+    }
+    
+    const move = choice.message.content.trim();
+    
+    // Handle finish_reason: 'length' - response was truncated
+    if (choice.finish_reason === 'length') {
+      console.warn("⚠️ Response truncated due to max_tokens limit:", {
+        finish_reason: choice.finish_reason,
+        content: choice.message.content,
+        move: move
+      });
+      
+      // Try to extract a valid move even from truncated response
+      if (move && move.length >= 2) {
+        console.log("✅ Using truncated response as move:", move);
+      } else {
+        console.error("❌ Truncated response too short to be a valid move:", {
+          move,
+          finish_reason: choice.finish_reason,
+          content: choice.message.content
+        });
+        throw new Error("Response truncated and too short to be a valid move");
+      }
+    }
+    
+    // If move is empty or too short, it might be truncated
+    if (!move || move.length < 2) {
+      console.error("❌ Empty or too short move from OpenRouter:", {
+        move,
+        finish_reason: choice.finish_reason,
+        content: choice.message.content
+      });
+      throw new Error("Empty or invalid move from OpenRouter API");
+    }
     
     console.log("✅ OpenRouter Response:", {
       model,
-      rawResponse: data,
+      finish_reason: choice.finish_reason,
+      content: choice.message.content,
       extractedMove: move,
+      moveLength: move.length,
       timestamp: new Date().toISOString()
     });
 
+    // Success: clear any prior rate-limit flags
+    this.rateLimitExceeded = false;
+    this.rateLimitResetTime = null;
     return move;
+  }
+
+  private async callOpenRouterWithRetry(fen: string, apiKey: string, model: string): Promise<string> {
+    try {
+      return await this.callOpenRouter(fen, apiKey, model, 0);
+    } catch (error) {
+      console.warn("⚠️ First attempt failed, trying with simpler prompt:", error);
+      
+      // Try with an even simpler prompt
+      const response = await this.withTimeout(fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        referrer: typeof window !== 'undefined' ? window.location.origin : undefined,
+        referrerPolicy: 'strict-origin-when-cross-origin',
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "HTTP-Referer": typeof window !== 'undefined' ? window.location.origin : "bot-battles",
+          "X-Title": "Bot Battles Live",
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            {
+              role: "user",
+              content: `Chess position: ${fen}. What's the best move? Answer with just the move like "e4" or "Nf3".`,
+            },
+          ],
+          temperature: 0.1,
+          max_tokens: 20,
+        }),
+      }), 15000);
+
+      if (!response.ok) {
+        throw new Error(`OpenRouter API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const move = data.choices[0].message.content.trim();
+      
+      console.log("✅ OpenRouter Retry Response:", {
+        model,
+        move,
+        timestamp: new Date().toISOString()
+      });
+      
+      return move;
+    }
   }
 
   private async callGoogleGemini(fen: string, apiKey: string): Promise<string> {
@@ -188,8 +202,11 @@ Respond with ONLY the move in algebraic notation. No explanations or analysis.`,
       timestamp: new Date().toISOString()
     });
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+    const env = (import.meta as any).env || {};
+    const geminiModel = env.VITE_GEMINI_MODEL || "gemini-2.5-pro";
+
+    const response = await this.withTimeout(fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: {
@@ -200,43 +217,21 @@ Respond with ONLY the move in algebraic notation. No explanations or analysis.`,
             {
               parts: [
                 {
-                  text: `You are a professional chess engine that strictly follows the complete rules of chess. You must respond with ONLY the best legal move in standard algebraic notation.
-
-CHESS RULES YOU MUST FOLLOW:
-1. OBJECTIVE: Checkmate the opponent's king
-2. PIECE MOVEMENTS:
-   - King: One square in any direction (cannot move into check)
-   - Queen: Any number of squares in any direction
-   - Rook: Any number of squares vertically or horizontally
-   - Bishop: Any number of squares diagonally
-   - Knight: L-shape (2+1 squares), can jump over pieces
-   - Pawn: Forward 1 square (2 on first move), captures diagonally
-
-3. SPECIAL RULES:
-   - Castling: King moves 2 squares toward rook, rook moves next to king (O-O for kingside, O-O-O for queenside)
-   - En passant: Capture pawn that moved 2 squares as if it moved 1
-   - Pawn promotion: Must promote to Queen, Rook, Bishop, or Knight when reaching 8th rank
-   - Check: King under attack, must respond immediately
-   - Checkmate: King in check with no legal moves = game over
-   - Stalemate: King not in check but no legal moves = draw
-
-4. ILLEGAL MOVES: Never move into check or make illegal moves
-5. NOTATION: Use standard algebraic notation (e.g., 'e4', 'Nf3', 'O-O', 'O-O-O', 'exd5', 'Qh5+', 'Nxf7#')
+                  text: `You are a chess engine. Give ONLY the move in algebraic notation. Examples: e4, Nf3, O-O, exd5. No words, just the move.
 
 FEN: ${fen}
-
-What is your move? Respond with ONLY the move in algebraic notation. No explanations or analysis.`,
+Best move:`,
                 },
               ],
             },
           ],
           generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 10,
+            temperature: 0.1,
+            maxOutputTokens: 20,
           },
         }),
       }
-    );
+    ), 15000);
 
     console.log("📡 Google Gemini Response Status:", response.status);
     
@@ -246,16 +241,55 @@ What is your move? Respond with ONLY the move in algebraic notation. No explanat
       throw new Error(`Google Gemini API error: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json();
-    const move = data.candidates[0].content.parts[0].text.trim();
+    const result = await response.json();
     
+    const candidate = result?.candidates?.[0];
+
+    if (!candidate) {
+      console.error("❌ No candidates returned from Gemini:", result);
+      throw new Error("No candidates returned from Gemini API");
+    }
+
+    if (candidate.finishReason === "MAX_TOKENS") {
+      console.error("⚠️ Gemini stopped early due to MAX_TOKENS:", candidate);
+      // Try to still extract partial move if present
+    }
+
+    let moveText = "";
+
+    try {
+      if (Array.isArray(candidate.content)) {
+        // Normal structure (expected)
+        moveText = candidate.content[0]?.parts?.[0]?.text?.trim() || "";
+      } else if (candidate.content?.parts) {
+        // Alternate structure (some Gemini responses use this)
+        moveText = candidate.content.parts?.[0]?.text?.trim() || "";
+      }
+    } catch (err) {
+      console.error("⚠️ Parsing error:", err);
+      throw new Error(`Gemini parsing error: ${err.message}`);
+    }
+
+    if (!moveText) {
+      console.error("❌ Invalid Gemini candidate structure:", candidate);
+      throw new Error("Invalid candidate structure from Gemini API");
+    }
+
     console.log("✅ Google Gemini Response:", {
-      rawResponse: data,
-      extractedMove: move,
+      finishReason: candidate.finishReason,
+      extractedMove: moveText,
       timestamp: new Date().toISOString()
     });
 
-    return move;
+    return moveText;
+  }
+
+  private getOpenRouterModel(agentType: Agent["type"]): string {
+    const env = (import.meta as any).env || {};
+    if (agentType === "deepseek") return env.VITE_MODEL_DEEPSEEK || "deepseek/deepseek-chat-v3.1:free";
+    if (agentType === "gptoss") return env.VITE_MODEL_GPTOSS || "openai/gpt-oss-20b:free";
+    if (agentType === "mistral") return env.VITE_MODEL_MISTRAL || "mistralai/mistral-small-3.2-24b-instruct:free";
+    return "";
   }
 
   private shouldSkipApiCall(agent: Agent): boolean {
@@ -306,20 +340,20 @@ What is your move? Respond with ONLY the move in algebraic notation. No explanat
         case "deepseek":
           apiKey = apiKeys.openrouter;
           if (!apiKey) throw new Error("OpenRouter API key not set");
-          model = "deepseek/deepseek-chat-v3.1:free";
-          moveText = await this.callOpenRouter(fen, apiKey, model);
+          model = this.getOpenRouterModel("deepseek");
+          moveText = await this.callOpenRouterWithRetry(fen, apiKey, model);
           break;
         case "gptoss":
           apiKey = apiKeys.openrouter;
           if (!apiKey) throw new Error("OpenRouter API key not set");
-          model = "openai/gpt-oss-20b:free";
-          moveText = await this.callOpenRouter(fen, apiKey, model);
+          model = this.getOpenRouterModel("gptoss");
+          moveText = await this.callOpenRouterWithRetry(fen, apiKey, model);
           break;
         case "mistral":
           apiKey = apiKeys.openrouter;
           if (!apiKey) throw new Error("OpenRouter API key not set");
-          model = "mistralai/mistral-small-3.2-24b-instruct:free";
-          moveText = await this.callOpenRouter(fen, apiKey, model);
+          model = this.getOpenRouterModel("mistral");
+          moveText = await this.callOpenRouterWithRetry(fen, apiKey, model);
           break;
         case "gemini":
           apiKey = apiKeys.gemini;
@@ -363,81 +397,20 @@ What is your move? Respond with ONLY the move in algebraic notation. No explanat
       });
       return null;
     } catch (error) {
+      const message = (error as Error).message || String(error);
       console.error("❌ Error getting move from AI:", {
         agent: agent.name,
-        error: error.message,
+        error: message,
         timestamp: new Date().toISOString()
       });
-      
-      // Check if it's an authentication error
-      if (error.message.includes("401") || error.message.includes("Authentication") || error.message.includes("invalid")) {
-        console.log("🔑 API Key Issue Detected!");
-        console.log("💡 Please check your API keys:");
-        console.log("📋 Current Models:");
-        console.log("   - DeepSeek: deepseek/deepseek-chat-v3.1:free (OpenRouter)");
-        console.log("   - OpenAI: openai/gpt-oss-20b:free (OpenRouter)");
-        console.log("   - Google Gemini: gemini-2.0-flash-exp (Google AI Studio)");
-        console.log("   - Mistral: mistralai/mistral-small-3.2-24b-instruct:free (OpenRouter)");
-        console.log("   - DeepSeek: deepseek/deepseek-chat-v3.1:free (OpenRouter)");
-      }
-      
-      // Check if it's a payment/credits error
-      if (error.message.includes("402") || error.message.includes("Payment Required") || error.message.includes("Insufficient credits")) {
-        console.log("💳 OpenRouter Credits Issue Detected!");
-        console.log("💡 Your OpenRouter account needs credits to use paid models");
-        console.log("📋 Solution: All agents now use free models");
-        console.log("   - DeepSeek: deepseek/deepseek-chat-v3.1:free");
-        console.log("   - OpenAI: openai/gpt-oss-20b:free");
-        console.log("   - Mistral: mistralai/mistral-small-3.2-24b-instruct:free");
-        console.log("   - Google Gemini: Uses separate Google AI Studio API");
-        console.log("   - All models are completely free and don't require credits");
-      }
-      
-      // Check if it's a rate limit error
-      if (error.message.includes("429") || error.message.includes("Rate limit exceeded") || error.message.includes("Too Many Requests")) {
+
+      // Mark rate limit only on HTTP 429
+      if (message.includes("429") || message.includes("Rate limit exceeded") || message.includes("Too Many Requests")) {
         this.rateLimitExceeded = true;
-        console.log("⏰ OpenRouter Rate Limit Exceeded!");
-        console.log("💡 You've hit the daily free tier limit (50 requests)");
-        
-        if (this.rateLimitResetTime) {
-          const resetDate = new Date(this.rateLimitResetTime);
-          const hoursUntilReset = Math.ceil((this.rateLimitResetTime - Date.now()) / (1000 * 60 * 60));
-          console.log(`🕐 Rate limit resets at: ${resetDate.toLocaleString()}`);
-          console.log(`⏳ Time until reset: ~${hoursUntilReset} hours`);
-        }
-        
-        console.log("📋 Solutions:");
-        console.log("   - Wait 24 hours for the limit to reset");
-        console.log("   - Add 10 credits to unlock 1000 requests per day");
-        console.log("   - Visit: https://openrouter.ai/settings/credits");
-        console.log("🛑 Game will stop when affected agents try to make moves");
-      }
-      
-      // Check if it's a Google API key error
-      if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) {
-        console.log("🔑 Google Gemini API Key Issue Detected!");
-        console.log("💡 The Google Gemini API key is invalid or incorrect");
-        console.log("📋 Solution: Update the API key in localStorage");
-        console.log("   - Run: setAllApiKeys() in browser console");
-        console.log("   - Or manually set: localStorage.setItem('ai-chess-api-keys', JSON.stringify({...}))");
-        console.log("   - Google API key should be: AIzaSyAGdapWB5H4Igg7aQYVO6XnMeLbFsTxkQk");
-      }
-      
-      // Check if it's a rate limit error - no fallback, return null
-      if (error.message.includes("429") || error.message.includes("Rate limit exceeded")) {
-        console.log("⏸️ Rate limit exceeded, no move will be made:", {
-          agent: agent.name,
-          reason: "Rate limit exceeded, game should stop"
-        });
         return null;
       }
-      
-      // No move will be made on other errors
-      console.log("❌ No move will be made due to API error:", {
-        agent: agent.name,
-        error: error.message,
-        availableMoves: game.moves()
-      });
+
+      // For all other errors, do not claim rate limit. Just stop this move.
       return null;
     }
   }
