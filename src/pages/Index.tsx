@@ -9,14 +9,13 @@ import { AGENTS } from "@/data/agents";
 import { useChessMatch } from "@/hooks/useChessMatch";
 import { useApiKeys } from "@/hooks/useApiKeys";
 import { Agent } from "@/types/chess";
-import { aiChessService } from "@/services/aiChessService";
 
 const Index = () => {
   const [agent1, setAgent1] = useState<Agent | null>(AGENTS[0]);
   const [agent2, setAgent2] = useState<Agent | null>(AGENTS[1]);
   // Rate limit status removed
   const { apiKeys } = useApiKeys();
-  const { game, isPlaying, speed, result, moveTimes, currentMoveStart, currentThinkingAgent, gameStopReason, isThinking, togglePlayPause, resetGame, cycleSpeed } =
+  const { game, isPlaying, result, moveTimes, currentMoveStart, currentThinkingAgent, gameStopReason, isThinking, thinkingTime, togglePlayPause, resetGame } =
     useChessMatch(agent1, agent2, apiKeys);
 
   // Rate limit polling removed
@@ -37,8 +36,8 @@ const Index = () => {
     }
   };
 
-  const moveNumber = Math.floor(game.history().length / 2) + 1;
   const currentTurn = game.turn() === "w" ? "white" : "black";
+  const moveNumber = Math.floor(game.history().length / 2) + 1;
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -68,7 +67,8 @@ const Index = () => {
               moveTimes={moveTimes} 
               currentMoveStart={currentMoveStart} 
               currentThinkingAgent={currentThinkingAgent}
-              isThinking={isThinking} 
+              isThinking={isThinking}
+              thinkingTime={thinkingTime}
             />
           </div>
         </aside>
@@ -80,11 +80,9 @@ const Index = () => {
         isPlaying={isPlaying}
         moveNumber={moveNumber}
         currentTurn={currentTurn}
-        speed={speed}
         result={result}
         onPlayPause={togglePlayPause}
         onReset={resetGame}
-        onSpeedChange={cycleSpeed}
       />
     </div>
   );

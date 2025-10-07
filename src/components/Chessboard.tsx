@@ -8,18 +8,19 @@ interface ChessboardProps {
 }
 
 const pieceSymbols: { [key: string]: string } = {
-  wp: "♟", // White pieces now use black symbols
+  // Use filled glyph set for BOTH sides; color will differentiate
+  wp: "♟",
   wn: "♞",
   wb: "♝",
   wr: "♜",
   wq: "♛",
   wk: "♚",
-  bp: "♙", // Black pieces now use white symbols
-  bn: "♘",
-  bb: "♗",
-  br: "♖",
-  bq: "♕",
-  bk: "♔",
+  bp: "♟",
+  bn: "♞",
+  bb: "♝",
+  br: "♜",
+  bq: "♛",
+  bk: "♚",
 };
 
 export const Chessboard = ({ 
@@ -69,27 +70,23 @@ export const Chessboard = ({
                     key={square}
                     className={`relative flex items-center justify-center ${
                       isLight ? "bg-board-light" : "bg-board-dark"
-                    } ${
-                      isLastMove ? "ring-2 ring-yellow-400 ring-opacity-75" : ""
-                    } ${
-                      isCheck ? "ring-2 ring-red-500 ring-opacity-75" : ""
-                    }`}
+                    } ${isCheck ? "ring-2 ring-red-500 ring-opacity-75" : ""}`}
                     style={{
                       width: squareSize,
                       height: squareSize,
                       fontSize: squareSize * 0.65,
                     }}
                   >
+                    {isLastMove && (
+                      <div className="absolute inset-0 bg-orange-500/40 pointer-events-none" />
+                    )}
                     {piece && (
                       <span
-                        className={`select-none ${
-                          piece.color === "w" ? "text-gray-100" : "text-gray-900"
-                        }`}
+                        className={"select-none"}
                         style={{
-                          textShadow:
-                            piece.color === "w"
-                              ? "0 0 2px rgba(0,0,0,0.8)"
-                              : "0 0 2px rgba(0,0,0,0.3)",
+                          // Force fully opaque solid colors for both sides
+                          color: piece.color === "b" ? "#000000" : "#FFFFFF",
+                          textShadow: piece.color === "w" ? "0 0 2px rgba(0,0,0,0.85)" : "none",
                         }}
                       >
                         {pieceSymbols[`${piece.color}${piece.type}`]}

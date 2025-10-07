@@ -15,6 +15,17 @@ export interface ApiKeys {
   gemini?: string; // Google AI Studio key
 }
 
+export interface ChessMove {
+  san: string;
+  uci: string | null;
+}
+
+export interface ChessMatch {
+  opening: string;
+  result: string;
+  moves: ChessMove[];
+}
+
 export interface Match {
   id: string;
   agent1: Agent;

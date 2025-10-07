@@ -1,74 +1,79 @@
 import { useState, useEffect, useCallback } from "react";
 import { Chess } from "chess.js";
-import { Agent, MatchSpeed, ApiKeys } from "@/types/chess";
-import { aiChessService } from "@/services/aiChessService";
+import { Agent, ApiKeys } from "@/types/chess";
+import { aiChessService, GameResult } from "@/services/aiChessService";
 
 export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKeys: ApiKeys) => {
   const [game, setGame] = useState(new Chess());
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState<MatchSpeed>("normal");
   const [result, setResult] = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [moveTimes, setMoveTimes] = useState<Record<string, number[]>>({});
   const [currentMoveStart, setCurrentMoveStart] = useState<number | null>(null);
   const [currentThinkingAgent, setCurrentThinkingAgent] = useState<string | null>(null);
   const [gameStopReason, setGameStopReason] = useState<string | null>(null);
+  const [matchStart, setMatchStart] = useState<number | null>(null);
+  const [thinkingTime, setThinkingTime] = useState<number>(0);
 
+  /**
+   * Handle game end with proper result formatting
+   */
+  const handleGameEnd = useCallback((gameResult: GameResult) => {
+    let resultText = "";
+    
+    switch (gameResult.result) {
+      case '1-0':
+        resultText = `White wins by ${gameResult.reason}!`;
+        break;
+      case '0-1':
+        resultText = `Black wins by ${gameResult.reason}!`;
+        break;
+      case '1/2-1/2':
+        resultText = `Draw by ${gameResult.reason}!`;
+        break;
+    }
+
+    setResult(resultText);
+    setIsPlaying(false);
+    setIsThinking(false);
+    setCurrentMoveStart(null);
+    setCurrentThinkingAgent(null);
+    setThinkingTime(0);
+    
+    console.log("🏁 Game ended:", {
+      result: gameResult,
+      resultText,
+      timestamp: new Date().toISOString()
+    });
+  }, []);
+
+  /**
+   * Make an AI move with proper timing and error handling
+   */
   const makeAiMove = useCallback(async () => {
     if (!agent1 || !agent2) return;
 
-    const moves = game.moves();
-    console.log("🔍 Game state check:", {
-      availableMoves: moves.length,
-      isCheckmate: game.isCheckmate(),
-      isStalemate: game.isStalemate(),
-      isDraw: game.isDraw(),
-      isThreefoldRepetition: game.isThreefoldRepetition(),
-      isInsufficientMaterial: game.isInsufficientMaterial(),
-      turn: game.turn(),
-      turnColor: game.turn() === "w" ? "WHITE" : "BLACK",
-      timestamp: new Date().toISOString()
-    });
-    
-    if (moves.length === 0) {
-      let gameResult = "";
-      if (game.isCheckmate()) {
-        gameResult = game.turn() === "w" ? "Black wins by checkmate!" : "White wins by checkmate!";
-      } else if (game.isStalemate()) {
-        gameResult = "Draw by stalemate!";
-      } else if (game.isDraw()) {
-        // Check specific draw conditions
-        if (game.isThreefoldRepetition()) {
-          gameResult = "Draw by threefold repetition!";
-        } else if (game.isInsufficientMaterial()) {
-          gameResult = "Draw by insufficient material!";
-        } else if (game.isDraw()) {
-          gameResult = "Draw by 50-move rule!";
-        } else {
-          gameResult = "Draw!";
-        }
-      } else {
-        // If no moves but not a recognized end condition, something is wrong
-        console.warn("⚠️ No moves available but game not ended:", {
-          isCheckmate: game.isCheckmate(),
-          isStalemate: game.isStalemate(),
-          isDraw: game.isDraw(),
-          fen: game.fen()
-        });
-        return; // Don't end the game, let it continue
-      }
-      
-      setResult(gameResult);
-      console.log("🏁 Game ended:", { result: gameResult, timestamp: new Date().toISOString() });
-      // Don't automatically stop the game - let user decide when to stop
+    // Check if game is already over
+    const gameResult = aiChessService.getGameResult(game);
+    if (gameResult) {
+      handleGameEnd(gameResult);
       return;
     }
 
+    // Check if no legal moves available
+    const legalMoves = game.moves();
+    if (legalMoves.length === 0) {
+      console.warn("⚠️ No legal moves available but game not ended");
+      return;
+    }
+
+    // Start thinking phase
     setIsThinking(true);
     const currentAgent = game.turn() === "w" ? agent1 : agent2;
     const moveStartTime = Date.now();
     setCurrentMoveStart(moveStartTime);
     setCurrentThinkingAgent(currentAgent.name);
+    setThinkingTime(0);
     
     console.log("🏁 Starting AI move calculation:", {
       currentAgent: currentAgent.name,
@@ -78,71 +83,77 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
       turnColor: game.turn() === "w" ? "WHITE" : "BLACK",
       moveNumber: Math.floor(game.history().length / 2) + 1,
       fen: game.fen(),
+      legalMoves: legalMoves.length,
       timestamp: new Date().toISOString()
     });
 
-    const move = await aiChessService.getMove(currentAgent, game, apiKeys);
-    
-    if (move) {
-      const moveEndTime = Date.now();
-      const moveDuration = moveEndTime - moveStartTime;
+    try {
+      const move = await aiChessService.getMove(currentAgent, game, apiKeys);
       
-      // Record move time for this agent
-      setMoveTimes(prev => ({
-        ...prev,
-        [currentAgent.name]: [...(prev[currentAgent.name] || []), moveDuration]
-      }));
-      
-      const newGame = new Chess(game.fen());
-      newGame.move(move);
-      setGame(newGame);
-      
-      console.log("🎮 Move executed:", {
-        agent: currentAgent.name,
-        move,
-        moveTime: `${moveDuration}ms`,
-        newFen: newGame.fen(),
-        gameHistory: newGame.history(),
-        nextTurn: newGame.turn(),
-        nextTurnColor: newGame.turn() === "w" ? "WHITE" : "BLACK",
-        nextAgent: newGame.turn() === "w" ? agent1?.name : agent2?.name,
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      console.log("❌ No move made:", {
-        agent: currentAgent.name,
-        reason: "AI returned null move",
-        timestamp: new Date().toISOString()
-      });
-      
-      // Stop the game with a reason
-      const stopReason = `Game stopped: ${currentAgent.name} could not make a move (API issue or rate limit)`;
-      setGameStopReason(stopReason);
-      setIsPlaying(false);
-      console.log("🛑 Game stopped:", { reason: stopReason, timestamp: new Date().toISOString() });
+      if (move) {
+        const moveEndTime = Date.now();
+        const moveDuration = moveEndTime - moveStartTime;
+        
+        // Record move time for this agent
+        setMoveTimes(prev => ({
+          ...prev,
+          [currentAgent.name]: [...(prev[currentAgent.name] || []), moveDuration]
+        }));
+        
+        // Apply the move
+        const newGame = new Chess(game.fen());
+        const moveResult = newGame.move(move);
+        
+        if (moveResult) {
+          setGame(newGame);
+          
+          console.log("🎮 Move executed:", {
+            agent: currentAgent.name,
+            move,
+            moveTime: `${moveDuration}ms`,
+            newFen: newGame.fen(),
+            gameHistory: newGame.history(),
+            nextTurn: newGame.turn(),
+            nextTurnColor: newGame.turn() === "w" ? "WHITE" : "BLACK",
+            nextAgent: newGame.turn() === "w" ? agent1?.name : agent2?.name,
+            timestamp: new Date().toISOString()
+          });
+
+          // Check if game ended after this move
+          const newGameResult = aiChessService.getGameResult(newGame);
+          if (newGameResult) {
+            handleGameEnd(newGameResult);
+            return;
+          }
+        } else {
+          console.error("❌ Failed to apply move:", move);
+        }
+      } else {
+        console.log("⏳ No move returned (time limit or game end)");
+        
+        // Check if time limit reached
+        const stats = aiChessService.getMatchStats();
+        if (stats.timeRemaining <= 0) {
+          handleGameEnd({
+            winner: null,
+            reason: 'draw',
+            result: '1/2-1/2'
+          });
+          return;
+        }
+      }
+    } catch (error) {
+      console.error("❌ Error during AI move:", error);
+    } finally {
+      // End thinking phase
+      setIsThinking(false);
+      setCurrentMoveStart(null);
+      setCurrentThinkingAgent(null);
+      setThinkingTime(0);
     }
-    setIsThinking(false);
-    setCurrentMoveStart(null);
-    setCurrentThinkingAgent(null);
-  }, [game, agent1, agent2, apiKeys]);
+  }, [game, agent1, agent2, apiKeys, handleGameEnd]);
 
-  useEffect(() => {
-    if (!isPlaying || isThinking) return;
-
-    const delays = {
-      normal: 1000, // Reduced from 2000ms
-      fast: 500,    // Reduced from 1000ms
-      instant: 200, // Reduced from 500ms
-    };
-
-    const timer = setTimeout(() => {
-      makeAiMove();
-    }, delays[speed]);
-
-    return () => clearTimeout(timer);
-  }, [isPlaying, speed, isThinking, makeAiMove]); // Removed game.fen() to prevent excessive re-renders
-
-  // Separate effect to trigger moves when game state changes
+  // Effect to trigger moves when game is playing
   useEffect(() => {
     if (!isPlaying || isThinking || !agent1 || !agent2) return;
     
@@ -157,9 +168,39 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     }
   }, [game.fen(), isPlaying, isThinking, agent1, agent2, makeAiMove]);
 
+  // Effect to update thinking time every second
+  useEffect(() => {
+    if (!isThinking || !currentMoveStart) {
+      setThinkingTime(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const elapsed = Math.max(0, (Date.now() - currentMoveStart) / 1000);
+      setThinkingTime(elapsed);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isThinking, currentMoveStart]);
+
+  /**
+   * Toggle play/pause with proper state management
+   */
   const togglePlayPause = () => {
     const newPlayingState = !isPlaying;
     setIsPlaying(newPlayingState);
+    
+    if (newPlayingState) {
+      // Resume: start match timer and initialize AI service
+      setMatchStart(Date.now());
+      aiChessService.initializeMatch(3); // Default difficulty 3
+    } else {
+      // Pause: stop thinking timer and clear current move
+      setIsThinking(false);
+      setCurrentMoveStart(null);
+      setCurrentThinkingAgent(null);
+      setThinkingTime(0);
+    }
     
     console.log("🎮 Game state changed:", {
       isPlaying: newPlayingState,
@@ -169,6 +210,9 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     });
   };
 
+  /**
+   * Reset the game completely
+   */
   const resetGame = () => {
     console.log("🔄 Resetting game:", {
       previousFen: game.fen(),
@@ -183,28 +227,33 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     setCurrentMoveStart(null);
     setCurrentThinkingAgent(null);
     setGameStopReason(null);
+    setMatchStart(null);
+    setThinkingTime(0);
+    
+    // Reset AI service
+    aiChessService.reset();
   };
 
-  const cycleSpeed = () => {
-    setSpeed((prev) => {
-      if (prev === "normal") return "fast";
-      if (prev === "fast") return "instant";
-      return "normal";
-    });
+  /**
+   * Set match difficulty (1-5 scale)
+   */
+  const setDifficulty = (difficulty: number) => {
+    aiChessService.setDifficulty(difficulty);
   };
 
   return {
     game,
     isPlaying,
-    speed,
     result,
     isThinking,
     moveTimes,
     currentMoveStart,
     currentThinkingAgent,
     gameStopReason,
+    thinkingTime,
     togglePlayPause,
     resetGame,
-    cycleSpeed,
+    setDifficulty,
+    matchStats: aiChessService.getMatchStats()
   };
 };

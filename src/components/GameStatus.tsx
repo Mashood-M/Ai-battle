@@ -1,7 +1,7 @@
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+﻿import { useState, useEffect } from "react";
 import { Chess } from "chess.js";
-import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface GameStatusProps {
   game: Chess;
@@ -9,32 +9,23 @@ interface GameStatusProps {
   currentMoveStart: number | null;
   currentThinkingAgent: string | null;
   isThinking: boolean;
+  thinkingTime: number;
 }
 
-export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking }: GameStatusProps) => {
-  const [now, setNow] = useState<number>(Date.now());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime }: GameStatusProps) => {
   const history = game.history({ verbose: true });
   const lastMove = history.length > 0 ? history[history.length - 1] : null;
   
-  // Calculate average move times
   const averageTimes = Object.entries(moveTimes).map(([agent, times]) => ({
     agent,
     averageTime: times.reduce((sum, time) => sum + time, 0) / times.length,
-    totalMoves: times.length,
-    fastestMove: Math.min(...times),
-    slowestMove: Math.max(...times)
+    totalMoves: times.length
   })).sort((a, b) => a.averageTime - b.averageTime);
 
-  // Get current thinking time in seconds
-  const currentThinkingTime = currentMoveStart ? (now - currentMoveStart) / 1000 : 0;
+  const gameEnded = game.isCheckmate() || game.isStalemate() || game.isDraw();
 
   return (
     <div className="space-y-4">
-      {/* Current Game Status */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Game Status</CardTitle>
@@ -59,7 +50,7 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
             </div>
           )}
 
-          {isThinking && currentThinkingAgent && (
+          {isThinking && currentThinkingAgent && !gameEnded && (
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Thinking:</span>
               <div className="text-right">
@@ -67,7 +58,7 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
                   {currentThinkingAgent}
                 </div>
                 <div className="text-xs text-blue-500">
-                  {currentThinkingTime.toFixed(1)}s
+                  {thinkingTime.toFixed(1)}s
                 </div>
               </div>
             </div>
@@ -82,28 +73,22 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
         </CardContent>
       </Card>
 
-      {/* Speed Leaderboard */}
       {averageTimes.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Speed Leaderboard</CardTitle>
+            <CardTitle className="text-lg">Move Times</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {averageTimes.slice(0, 3).map((player, index) => (
-                <div key={player.agent} className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
-                  <div className="flex items-center space-x-2">
-                    <Badge variant={index === 0 ? "default" : index === 1 ? "secondary" : "outline"}>
-                      #{index + 1}
-                    </Badge>
-                    <span className="text-sm font-medium">{player.agent}</span>
+            <div className="space-y-3">
+              {averageTimes.map(({ agent, averageTime, totalMoves }) => (
+                <div key={agent} className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium">{agent}</div>
+                    <div className="text-xs text-muted-foreground">{totalMoves} moves</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs text-muted-foreground">
-                      Avg: {(player.averageTime / 1000).toFixed(1)}s
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {player.totalMoves} moves
+                    <div className="text-sm font-mono">
+                      {(averageTime / 1000).toFixed(1)}s avg
                     </div>
                   </div>
                 </div>
@@ -112,7 +97,6 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
           </CardContent>
         </Card>
       )}
-
     </div>
   );
 };

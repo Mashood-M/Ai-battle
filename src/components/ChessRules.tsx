@@ -1,6 +1,7 @@
 import { Chess } from "chess.js";
 import { Info, Crown, Shield, Zap, Target } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { chessRules } from "@/types/chessRules";
 import { Badge } from "@/components/ui/badge";
 
 interface ChessRulesProps {
@@ -97,20 +98,26 @@ export const ChessRules = ({ game }: ChessRulesProps) => {
               <strong>Objective:</strong> Checkmate the opponent's king
             </div>
             <div>
-              <strong>Special Moves:</strong>
+              <strong>Piece Movements:</strong>
               <ul className="ml-4 mt-1 space-y-1">
-                <li>• <strong>Castling:</strong> O-O (kingside) or O-O-O (queenside)</li>
-                <li>• <strong>En Passant:</strong> Capture pawn that moved 2 squares</li>
-                <li>• <strong>Pawn Promotion:</strong> Promote to Q, R, B, or N</li>
+                {Object.entries(chessRules.pieces).map(([piece, rule]) => (
+                  <li key={piece}>
+                    • <strong>{piece.charAt(0).toUpperCase() + piece.slice(1)}:</strong> {rule.moves.join(", ")}
+                    {rule.special && rule.special.length > 0 && (
+                      <span className="text-blue-600"> (Special: {rule.special.join(", ")})</span>
+                    )}
+                  </li>
+                ))}
               </ul>
             </div>
             <div>
-              <strong>Draw Conditions:</strong>
+              <strong>Special Rules:</strong>
               <ul className="ml-4 mt-1 space-y-1">
-                <li>• Stalemate (no legal moves, not in check)</li>
-                <li>• Threefold repetition</li>
-                <li>• 50-move rule</li>
-                <li>• Insufficient material</li>
+                {Object.entries(chessRules.special_rules).map(([rule, details]) => (
+                  <li key={rule}>
+                    • <strong>{rule.charAt(0).toUpperCase() + rule.slice(1).replace('_', ' ')}:</strong> {details.conditions.join(", ")}
+                  </li>
+                ))}
               </ul>
             </div>
           </div>

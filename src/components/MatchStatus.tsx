@@ -1,7 +1,6 @@
-import { Play, Pause, RotateCcw, Zap } from "lucide-react";
+import { Play, Pause, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Agent } from "@/types/chess";
-import { MatchSpeed } from "@/types/chess";
 
 interface MatchStatusProps {
   agent1: Agent | null;
@@ -9,11 +8,9 @@ interface MatchStatusProps {
   isPlaying: boolean;
   moveNumber: number;
   currentTurn: "white" | "black";
-  speed: MatchSpeed;
   result: string | null;
   onPlayPause: () => void;
   onReset: () => void;
-  onSpeedChange: () => void;
 }
 
 export const MatchStatus = ({
@@ -22,17 +19,10 @@ export const MatchStatus = ({
   isPlaying,
   moveNumber,
   currentTurn,
-  speed,
   result,
   onPlayPause,
   onReset,
-  onSpeedChange,
 }: MatchStatusProps) => {
-  const speedLabels = {
-    normal: "1x",
-    fast: "2x",
-    instant: "⚡",
-  };
 
   return (
     <footer className="border-t border-border bg-card/50 backdrop-blur-sm">
@@ -75,20 +65,14 @@ export const MatchStatus = ({
             )}
           </div>
 
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={onSpeedChange}
-              className="border-border hover:bg-secondary"
-            >
-              {speed === "instant" ? (
-                <Zap className="w-4 h-4" />
-              ) : (
-                <span className="text-xs font-mono font-bold">{speedLabels[speed]}</span>
-              )}
-            </Button>
+          {/* Center credit */}
+          <div className="flex-1 flex items-center justify-center">
+            <span className="text-xs md:text-sm text-muted-foreground">
+              Powered by <span className="font-semibold text-foreground">Elevates</span>
+            </span>
+          </div>
 
+          <div className="flex items-center gap-3">
             <Button
               variant="outline"
               size="icon"
