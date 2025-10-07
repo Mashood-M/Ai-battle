@@ -15,12 +15,13 @@ export class AiChessService {
   private readonly maxGameDurationMs: number = 15 * 60 * 1000; // kept for stats only
 
   // Delay system configuration (tiered adaptive delays)
-  private readonly earlyMoveMinDelay = 5000;   // moves 1-6: 5s - 10s
-  private readonly earlyMoveMaxDelay = 10000;
-  private readonly midMoveMinDelay = 10000;    // moves 7-25: 10s - 15s
-  private readonly midMoveMaxDelay = 15000;
-  private readonly lateMoveMinDelay = 15000;   // moves 26+: 15s - 25s
-  private readonly lateMoveMaxDelay = 25000;
+  // Target ranges per request
+  private readonly earlyMoveMinDelay = 3000;   // moves 1-6: 3s - 5s
+  private readonly earlyMoveMaxDelay = 5000;
+  private readonly midMoveMinDelay = 6000;     // moves 7-25: 6s - 9s
+  private readonly midMoveMaxDelay = 9000;
+  private readonly lateMoveMinDelay = 8000;    // moves 26+: 8s - 12s
+  private readonly lateMoveMaxDelay = 12000;
 
   /**
    * Calculate delay based on move number using tiered adaptive system

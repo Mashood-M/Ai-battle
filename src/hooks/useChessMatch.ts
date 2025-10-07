@@ -14,6 +14,46 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   const [gameStopReason, setGameStopReason] = useState<string | null>(null);
   const [matchStart, setMatchStart] = useState<number | null>(null);
   const [thinkingTime, setThinkingTime] = useState<number>(0);
+  const MATCH_LIMIT_SECONDS = 15 * 60;
+  const [matchElapsedSeconds, setMatchElapsedSeconds] = useState<number>(0);
+
+  const getMaterialPoints = useCallback((g: Chess) => {
+    const board = g.board();
+    const values: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    let white = 0;
+    let black = 0;
+    for (const rank of board) {
+      for (const sq of rank) {
+        if (!sq) continue;
+        const v = values[sq.type] ?? 0;
+        if (sq.color === 'w') white += v; else black += v;
+      }
+    }
+    return { white, black };
+  }, []);
+
+  // On mount, ensure any previous persisted state is cleared so refresh starts a new game
+  useEffect(() => {
+    try {
+      localStorage.removeItem("bb_fen");
+      localStorage.removeItem("bb_result");
+    } catch {}
+  }, []);
+
+  // --- Pause when tab/window is hidden instead of resetting
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        setIsPlaying(false);
+        setIsThinking(false);
+        setCurrentMoveStart(null);
+        setCurrentThinkingAgent(null);
+        setThinkingTime(0);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   /**
    * Handle game end with proper result formatting
@@ -168,6 +208,34 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     }
   }, [game.fen(), isPlaying, isThinking, agent1, agent2, makeAiMove]);
 
+  // Match clock: counts up from 0, ends match at 15 minutes by points
+  useEffect(() => {
+    if (!isPlaying) return;
+    const t = setInterval(() => {
+      setMatchElapsedSeconds((prev) => {
+        const next = prev + 1;
+        if (next >= MATCH_LIMIT_SECONDS) {
+          // Decide winner by points
+          const { white, black } = getMaterialPoints(game);
+          if (white === black) {
+            setResult('Draw by time (equal material)');
+          } else {
+            const winner = white > black ? 'White' : 'Black';
+            setResult(`${winner} wins by higher material on time`);
+          }
+          setIsPlaying(false);
+          setIsThinking(false);
+          setCurrentMoveStart(null);
+          setCurrentThinkingAgent(null);
+          setThinkingTime(0);
+          return MATCH_LIMIT_SECONDS;
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [isPlaying, game, getMaterialPoints]);
+
   // Effect to update thinking time every second
   useEffect(() => {
     if (!isThinking || !currentMoveStart) {
@@ -193,6 +261,9 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     if (newPlayingState) {
       // Resume: start match timer and initialize AI service
       setMatchStart(Date.now());
+      if (matchElapsedSeconds === 0) {
+        // fresh start
+      }
       aiChessService.initializeMatch(3); // Default difficulty 3
     } else {
       // Pause: stop thinking timer and clear current move
@@ -229,6 +300,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     setGameStopReason(null);
     setMatchStart(null);
     setThinkingTime(0);
+    setMatchElapsedSeconds(0);
     
     // Reset AI service
     aiChessService.reset();
@@ -251,6 +323,10 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     currentThinkingAgent,
     gameStopReason,
     thinkingTime,
+    matchElapsedSeconds,
+    matchLimitSeconds: MATCH_LIMIT_SECONDS,
+    whitePoints: getMaterialPoints(game).white,
+    blackPoints: getMaterialPoints(game).black,
     togglePlayPause,
     resetGame,
     setDifficulty,

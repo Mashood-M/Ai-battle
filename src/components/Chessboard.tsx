@@ -34,6 +34,8 @@ export const Chessboard = ({
   const history = game.history({ verbose: true });
   const lastMove = history.length > 0 ? history[history.length - 1] : null;
 
+  // The checkmated side is the side to move; we'll mark ONLY that king's square
+
   const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ranks = ["8", "7", "6", "5", "4", "3", "2", "1"];
 
@@ -64,13 +66,22 @@ export const Chessboard = ({
 
                 const isLastMove = isLastMoveSquare(square);
                 const isCheck = isInCheck(square);
+                // Compute mated king square inline to avoid stale board state affecting both colors
+                let isMateKing = false;
+                if (game.isCheckmate()) {
+                  const matedColor = game.turn();
+                  const pieceHere = game.get(square as Square);
+                  if (pieceHere && pieceHere.type === 'k' && pieceHere.color === matedColor) {
+                    isMateKing = true;
+                  }
+                }
                 
                 return (
                   <div
                     key={square}
                     className={`relative flex items-center justify-center ${
                       isLight ? "bg-board-light" : "bg-board-dark"
-                    } ${isCheck ? "ring-2 ring-red-500 ring-opacity-75" : ""}`}
+                    } ${isCheck && !isMateKing ? "ring-2 ring-red-500 ring-opacity-75" : ""}`}
                     style={{
                       width: squareSize,
                       height: squareSize,
@@ -78,11 +89,14 @@ export const Chessboard = ({
                     }}
                   >
                     {isLastMove && (
-                      <div className="absolute inset-0 bg-orange-500/40 pointer-events-none" />
+                      <div className="absolute inset-0 bg-orange-500/40 pointer-events-none z-10" />
+                    )}
+                    {isMateKing && (
+                      <div className="absolute inset-0 bg-red-500/30 pointer-events-none z-10" />
                     )}
                     {piece && (
                       <span
-                        className={"select-none"}
+                        className={"select-none relative z-20"}
                         style={{
                           // Force fully opaque solid colors for both sides
                           color: piece.color === "b" ? "#000000" : "#FFFFFF",

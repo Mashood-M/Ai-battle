@@ -10,9 +10,15 @@ interface GameStatusProps {
   currentThinkingAgent: string | null;
   isThinking: boolean;
   thinkingTime: number;
+  matchElapsedSeconds?: number;
+  matchLimitSeconds?: number;
+  whitePoints?: number;
+  blackPoints?: number;
+  whiteName?: string;
+  blackName?: string;
 }
 
-export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime }: GameStatusProps) => {
+export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime, matchElapsedSeconds = 0, matchLimitSeconds = 900, whitePoints, blackPoints, whiteName = 'White', blackName = 'Black' }: GameStatusProps) => {
   const history = game.history({ verbose: true });
   const lastMove = history.length > 0 ? history[history.length - 1] : null;
   
@@ -28,9 +34,16 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Game Status</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Game Status</CardTitle>
+            <div className="text-sm font-mono px-3 py-1 rounded bg-secondary text-foreground">
+              {new Date(Math.max(0, (matchLimitSeconds - matchElapsedSeconds)) * 1000).toISOString().substring(14, 19)} / 15:00
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* Players row removed as requested */}
+
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Turn:</span>
             <Badge variant={game.turn() === "w" ? "default" : "secondary"}>
@@ -70,6 +83,15 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
               <Badge variant="destructive">Check!</Badge>
             </div>
           )}
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">White Points</span>
+            <span className="text-sm font-mono">{(whitePoints ?? 0)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Black Points</span>
+            <span className="text-sm font-mono">{(blackPoints ?? 0)}</span>
+          </div>
         </CardContent>
       </Card>
 
@@ -80,19 +102,25 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {averageTimes.map(({ agent, averageTime, totalMoves }) => (
-                <div key={agent} className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium">{agent}</div>
-                    <div className="text-xs text-muted-foreground">{totalMoves} moves</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-mono">
-                      {(averageTime / 1000).toFixed(1)}s avg
+              {averageTimes.map(({ agent, averageTime, totalMoves }) => {
+                const side = agent === whiteName ? 'white' : agent === blackName ? 'black' : null;
+                const dotClass = side === 'white' ? 'bg-board-light' : side === 'black' ? 'bg-board-dark' : 'bg-muted';
+                return (
+                  <div key={agent} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`} />
+                      <div className="text-sm font-medium">{agent}</div>
+                      {side && (
+                        <span className="text-xs text-muted-foreground">({side})</span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-muted-foreground text-right">{totalMoves} moves</div>
+                      <div className="text-sm font-mono">{(averageTime / 1000).toFixed(1)}s avg</div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
