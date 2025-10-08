@@ -12,13 +12,14 @@ interface GameStatusProps {
   thinkingTime: number;
   matchElapsedSeconds?: number;
   matchLimitSeconds?: number;
+  matchEndTime?: number | null;
   whitePoints?: number;
   blackPoints?: number;
   whiteName?: string;
   blackName?: string;
 }
 
-export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime, matchElapsedSeconds = 0, matchLimitSeconds = 1200, whitePoints, blackPoints, whiteName = 'White', blackName = 'Black' }: GameStatusProps) => {
+export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime, matchElapsedSeconds = 0, matchLimitSeconds = 1200, matchEndTime, whitePoints, blackPoints, whiteName = 'White', blackName = 'Black' }: GameStatusProps) => {
   const history = game.history({ verbose: true });
   const lastMove = history.length > 0 ? history[history.length - 1] : null;
   
@@ -29,6 +30,19 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
   })).sort((a, b) => a.averageTime - b.averageTime);
 
   const gameEnded = game.isCheckmate() || game.isStalemate() || game.isDraw();
+  
+  // Format timer display - show exact stopped time if game ended
+  const formatTimer = () => {
+    if (matchEndTime) {
+      // Game ended - show exact stopped time
+      const minutes = Math.floor(matchElapsedSeconds / 60);
+      const seconds = matchElapsedSeconds % 60;
+      return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} (STOPPED)`;
+    } else {
+      // Game running - show countdown
+      return `${new Date(Math.max(0, (matchLimitSeconds - matchElapsedSeconds)) * 1000).toISOString().substring(14, 19)} / 20:00`;
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -37,7 +51,7 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">Game Status</CardTitle>
             <div className="text-sm font-mono px-3 py-1 rounded bg-secondary text-foreground">
-              {new Date(Math.max(0, (matchLimitSeconds - matchElapsedSeconds)) * 1000).toISOString().substring(14, 19)} / 20:00
+              {formatTimer()}
             </div>
           </div>
         </CardHeader>

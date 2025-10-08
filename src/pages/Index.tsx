@@ -15,7 +15,7 @@ const Index = () => {
   const [agent2, setAgent2] = useState<Agent | null>(AGENTS[1]);
   // Rate limit status removed
   const { apiKeys } = useApiKeys();
-  const { game, isPlaying, result, moveTimes, currentMoveStart, currentThinkingAgent, gameStopReason, isThinking, thinkingTime, matchElapsedSeconds, matchLimitSeconds, whitePoints, blackPoints, togglePlayPause, resetGame } =
+  const { game, isPlaying, result, moveTimes, currentMoveStart, currentThinkingAgent, gameStopReason, isThinking, thinkingTime, matchElapsedSeconds, matchEndTime, matchLimitSeconds, whitePoints, blackPoints, togglePlayPause, resetGame } =
     useChessMatch(agent1, agent2, apiKeys);
 
   // Rate limit polling removed
@@ -68,6 +68,7 @@ const Index = () => {
               isThinking={isThinking}
               thinkingTime={thinkingTime}
               matchElapsedSeconds={matchElapsedSeconds}
+              matchEndTime={matchEndTime}
               matchLimitSeconds={matchLimitSeconds}
               whitePoints={whitePoints}
               blackPoints={blackPoints}

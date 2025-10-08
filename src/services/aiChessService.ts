@@ -14,7 +14,7 @@ export class AiChessService {
   // Removed strict time limit enforcement to allow full matches to checkmate
   private readonly maxGameDurationMs: number = 20 * 60 * 1000; // kept for stats only
   private readonly minAggressionTimeMs: number = 5 * 60 * 1000; // Start aggression much earlier
-  private readonly minCheckmateTimeMs: number = 5 * 60 * 1000; // Do not deliver mate before 5 minutes
+  private readonly minCheckmateTimeMs: number = 20 * 60 * 1000; // Do not deliver mate before 20 minutes
   private lastOpeningFirstSan: string | null = null;
   private openingAvoidSet: Set<string> = new Set();
 
@@ -90,6 +90,22 @@ export class AiChessService {
     const elapsed = this.matchStartTime ? Date.now() - this.matchStartTime : 0;
     const aggressive = elapsed >= this.minAggressionTimeMs || this.moveCount >= 8;
 
+    // Helper to ensure we don't deliver mate before minCheckmateTimeMs
+    const isPrematureMate = (san: string): boolean => {
+      if (elapsed >= this.minCheckmateTimeMs) return false;
+      const probe = new Chess(game.fen());
+      try { probe.move(san); } catch { return false; }
+      return probe.isCheckmate();
+    };
+
+    const pickFirstNonMating = (candidates: any[]): string | null => {
+      for (const mv of candidates) {
+        const san = typeof mv === 'string' ? mv : mv.san;
+        if (!isPrematureMate(san)) return san;
+      }
+      return null;
+    };
+
     if (aggressive) {
       // 1) Mate-in-1 search (highest priority)
       for (const mv of verbose) {
@@ -108,8 +124,11 @@ export class AiChessService {
       // 2) Any checking move
       const checks = verbose.filter((m: any) => typeof m.san === 'string' && m.san.includes('+'));
       if (checks.length > 0) {
-        console.log("⚡ Checking move selected");
-        return (checks[Math.floor(Math.random() * checks.length)].san) as string;
+        const san = pickFirstNonMating(checks);
+        if (san) {
+          console.log("⚡ Checking move selected");
+          return san as string;
+        }
       }
     }
 
@@ -126,9 +145,11 @@ export class AiChessService {
       
       // Pick from top 3 highest value captures
       const topCaptures = sortedCaptures.slice(0, Math.min(3, sortedCaptures.length));
-      const selectedCapture = topCaptures[Math.floor(Math.random() * topCaptures.length)];
-      console.log("💥 High-value capture:", selectedCapture.san);
-      return selectedCapture.san as string;
+      const san = pickFirstNonMating(topCaptures);
+      if (san) {
+        console.log("💥 High-value capture:", san);
+        return san as string;
+      }
     }
 
     // 4) Pawn pushes (advance pawns for promotion chances)
@@ -142,16 +163,18 @@ export class AiChessService {
       });
       
       const topPawns = sortedPawns.slice(0, Math.min(2, sortedPawns.length));
-      const selectedPawn = topPawns[Math.floor(Math.random() * topPawns.length)];
-      console.log("♟️ Pawn advance:", selectedPawn.san);
-      return selectedPawn.san as string;
+      const san = pickFirstNonMating(topPawns);
+      if (san) {
+        console.log("♟️ Pawn advance:", san);
+        return san as string;
+      }
     }
 
     // 5) Avoid drawish moves - prefer active moves
-    const activeMoves = this.pickActiveMove(legalMoves, verbose);
-    if (activeMoves) {
-      console.log("🎯 Active move:", activeMoves);
-      return activeMoves;
+    const activeMove = this.pickActiveMove(legalMoves, verbose);
+    if (activeMove && !isPrematureMate(activeMove)) {
+      console.log("🎯 Active move:", activeMove);
+      return activeMove;
     }
 
     // 6) Fallback - avoid repetition draws
@@ -162,11 +185,15 @@ export class AiChessService {
         return !testGame.isThreefoldRepetition();
       });
       if (nonRepeatingMoves.length > 0) {
-        return nonRepeatingMoves[Math.floor(Math.random() * nonRepeatingMoves.length)];
+        const san = pickFirstNonMating(nonRepeatingMoves);
+        if (san) return san as string;
       }
     }
 
-    // 7) Final fallback
+    // 7) Final fallback - pick first non-mating legal move if under threshold
+    const nonMating = legalMoves.filter((m) => !isPrematureMate(m));
+    if (nonMating.length > 0) return nonMating[Math.floor(Math.random() * nonMating.length)];
+    // If all moves mate (very rare), just return any legal move
     return legalMoves[Math.floor(Math.random() * legalMoves.length)];
   }
 

@@ -32,21 +32,38 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   const [thinkingTime, setThinkingTime] = useState<number>(0);
   const MATCH_LIMIT_SECONDS = 20 * 60;
   const [matchElapsedSeconds, setMatchElapsedSeconds] = useState<number>(0);
+  const [matchEndTime, setMatchEndTime] = useState<number | null>(null);
 
   const getMaterialPoints = useCallback((g: Chess) => computeMaterialScore(g), []);
 
   const determineWinnerByMaterial = useCallback((g: Chess): GameResult => {
     const { whitePoints, blackPoints } = getMaterialPoints(g);
-    if (whitePoints === blackPoints) {
+    if (whitePoints !== blackPoints) {
+      const winner = whitePoints > blackPoints ? 'white' : 'black';
+      return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
+    }
+
+    // Equal material: draw should be rare. Prefer a winner most of the time
+    const roll = Math.random();
+    if (roll < 0.03) {
       return { winner: 'draw', reason: 'time', result: '1/2-1/2' } as GameResult;
     }
-    const winner = whitePoints > blackPoints ? 'white' : 'black';
+    const winner = Math.random() < 0.5 ? 'white' : 'black';
     return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
   }, [getMaterialPoints]);
 
-  // On mount, ensure any previous persisted state is cleared so refresh starts a new game
+  // On mount, restore persisted timer state or clear for new game
   useEffect(() => {
     try {
+      const savedElapsed = localStorage.getItem("bb_matchElapsedSeconds");
+      const savedEndTime = localStorage.getItem("bb_matchEndTime");
+      if (savedElapsed) {
+        setMatchElapsedSeconds(parseInt(savedElapsed));
+      }
+      if (savedEndTime) {
+        setMatchEndTime(parseInt(savedEndTime));
+      }
+      // Clear old keys
       localStorage.removeItem("bb_fen");
       localStorage.removeItem("bb_result");
     } catch {}
@@ -71,15 +88,18 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
    * Handle game end with proper result formatting
    */
   const handleGameEnd = useCallback((gameResult: GameResult) => {
-    // Only show result when there is a decisive winner
-    if (gameResult.result === '1-0') {
-      setResult(`White wins by ${gameResult.reason}!`);
-    } else if (gameResult.result === '0-1') {
-      setResult(`Black wins by ${gameResult.reason}!`);
-    } else {
-      // Hide result for draws
-      setResult(null);
-    }
+    // Save final timer state
+    const finalTime = Date.now();
+    setMatchEndTime(finalTime);
+    try {
+      localStorage.setItem("bb_matchElapsedSeconds", matchElapsedSeconds.toString());
+      localStorage.setItem("bb_matchEndTime", finalTime.toString());
+    } catch {}
+
+    // Only show simplified winner text on actual match end
+    if (gameResult.result === '1-0') setResult('White wins');
+    else if (gameResult.result === '0-1') setResult('Black wins');
+    else setResult('Draw');
     setIsPlaying(false);
     setIsThinking(false);
     setCurrentMoveStart(null);
@@ -91,7 +111,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
       resultText: gameResult.result,
       timestamp: new Date().toISOString()
     });
-  }, []);
+  }, [matchElapsedSeconds]);
 
   /**
    * Make an AI move with proper timing and error handling
@@ -169,20 +189,32 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
 
           // Check if game ended after this move (checkmate, stalemate, draw)
           if (newGame.isCheckmate()) {
-            const winner = newGame.turn() === 'w' ? 'black' : 'white';
-            handleGameEnd({
-              winner,
-              reason: 'checkmate',
-              result: winner === 'white' ? '1-0' : '0-1'
-            });
-            return;
+            const stats = aiChessService.getMatchStats();
+            if (stats.elapsedTime >= 20 * 60 * 1000) {
+              const winner = newGame.turn() === 'w' ? 'black' : 'white';
+              handleGameEnd({
+                winner,
+                reason: 'checkmate',
+                result: winner === 'white' ? '1-0' : '0-1'
+              });
+              return;
+            } else {
+              // Before 20 minutes, do not end even if a checkmate position is reached
+              console.log('⏳ Checkmate detected before 20:00, continuing');
+            }
           }
           
-          // Don't end on stalemate/draw - continue playing until checkmate
+          // Handle stalemate/draw: at/after 20:00 adjudicate a WINNER, otherwise continue
           if (newGame.isStalemate() || newGame.isDraw()) {
-            console.log("🔄 Draw/stalemate detected - continuing play for checkmate");
-            // Game continues - AI will try to avoid draws
-            return;
+            const stats = aiChessService.getMatchStats();
+            if (stats.elapsedTime >= 20 * 60 * 1000) {
+              const adjudicated = determineWinnerByMaterial(newGame);
+              handleGameEnd(adjudicated);
+              return;
+            } else {
+              console.log("🔄 Draw/stalemate detected before 20:00 - continuing play for checkmate");
+              return;
+            }
           }
         } else {
           console.error("❌ Failed to apply move:", move);
@@ -232,11 +264,23 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   // Match clock: counts up from 0 (no longer ends the match on time; we finish by checkmate)
   useEffect(() => {
     if (!isPlaying) return;
+    
+    // Save timer state every second
+    const saveTimer = () => {
+      try {
+        localStorage.setItem("bb_matchElapsedSeconds", matchElapsedSeconds.toString());
+      } catch {}
+    };
+    
     const t = setInterval(() => {
-      setMatchElapsedSeconds((prev) => Math.min(prev + 1, MATCH_LIMIT_SECONDS));
+      setMatchElapsedSeconds((prev) => {
+        const newTime = Math.min(prev + 1, MATCH_LIMIT_SECONDS);
+        saveTimer();
+        return newTime;
+      });
     }, 1000);
     return () => clearInterval(t);
-  }, [isPlaying, game, getMaterialPoints]);
+  }, [isPlaying, matchElapsedSeconds]);
 
   // Effect to update thinking time every second
   useEffect(() => {
@@ -253,41 +297,13 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     return () => clearInterval(interval);
   }, [isThinking, currentMoveStart]);
 
-  // Auto-stop logic:
-  // - Hard cap at 20:00
-  // - Early termination window 5–10 min: low probability checks
-  // - Early termination window 10–20 min: higher probability checks
+  // Hard cap at 20:00 — adjudicate result (prefer wins; draws rare)
   useEffect(() => {
     if (!isPlaying) return;
-    if (game.isCheckmate()) return; // already ended
-
-    // Hard cap at 20 minutes
+    if (game.isCheckmate()) return;
     if (matchElapsedSeconds >= MATCH_LIMIT_SECONDS) {
       const res = determineWinnerByMaterial(game);
       handleGameEnd(res);
-      return;
-    }
-
-    // Early termination windows
-    // Check once per 15 seconds for a probabilistic stop, tuned distribution:
-    // - 5–10 min: some games end (low probability)
-    // - 10–15 min: most games end (higher probability)
-    // - 15–20 min: some games end (moderate probability)
-    if (matchElapsedSeconds > 0 && matchElapsedSeconds % 15 === 0) {
-      const minutes = matchElapsedSeconds / 60;
-      let probability = 0;
-      if (minutes >= 5 && minutes < 10) {
-        probability = 0.06; // low chance 5–10
-      } else if (minutes >= 10 && minutes < 15) {
-        probability = 0.20; // high chance 10–15 (most end here)
-      } else if (minutes >= 15 && minutes < 20) {
-        probability = 0.10; // moderate chance 15–20
-      }
-
-      if (probability > 0 && Math.random() < probability) {
-        const res = determineWinnerByMaterial(game);
-        handleGameEnd({ ...res, reason: 'adjudication' });
-      }
     }
   }, [isPlaying, matchElapsedSeconds, MATCH_LIMIT_SECONDS, game, determineWinnerByMaterial, handleGameEnd]);
 
@@ -342,6 +358,13 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     setMatchStart(null);
     setThinkingTime(0);
     setMatchElapsedSeconds(0);
+    setMatchEndTime(null);
+    
+    // Clear persisted timer state
+    try {
+      localStorage.removeItem("bb_matchElapsedSeconds");
+      localStorage.removeItem("bb_matchEndTime");
+    } catch {}
     
     // Reset AI service
     aiChessService.reset();
@@ -365,6 +388,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     gameStopReason,
     thinkingTime,
     matchElapsedSeconds,
+    matchEndTime,
     matchLimitSeconds: MATCH_LIMIT_SECONDS,
     whitePoints: getMaterialPoints(game).whitePoints,
     blackPoints: getMaterialPoints(game).blackPoints,
