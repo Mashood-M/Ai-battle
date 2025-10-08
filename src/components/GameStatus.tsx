@@ -68,16 +68,6 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
                   📡 Offline
                 </Badge>
               )}
-              {is20MinMatch && (
-                <Badge variant="outline" className="text-xs">
-                  20-Min Match
-                </Badge>
-              )}
-              {!is20MinMatch && currentGameDuration && currentGameDuration < 1200 && (
-                <Badge variant="outline" className="text-xs">
-                  Variable Match
-                </Badge>
-              )}
               <div className="text-sm font-mono px-3 py-1 rounded bg-secondary text-foreground">
                 {formatTimer()}
               </div>

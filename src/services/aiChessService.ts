@@ -88,7 +88,7 @@ export class AiChessService {
 
     const verbose = game.moves({ verbose: true }) as any[];
     const elapsed = this.matchStartTime ? Date.now() - this.matchStartTime : 0;
-    const aggressive = elapsed >= this.minAggressionTimeMs || this.moveCount >= 4; // Start aggression even earlier
+    const aggressive = elapsed >= this.minAggressionTimeMs || this.moveCount >= 4;
 
     // Helper to ensure we don't deliver mate before minCheckmateTimeMs
     const isPrematureMate = (san: string): boolean => {
@@ -98,87 +98,99 @@ export class AiChessService {
       return probe.isCheckmate();
     };
 
-    const pickFirstNonMating = (candidates: any[]): string | null => {
-      for (const mv of candidates) {
+    const pickRandomNonMating = (candidates: any[]): string | null => {
+      const nonMating = candidates.filter(mv => {
         const san = typeof mv === 'string' ? mv : mv.san;
-        if (!isPrematureMate(san)) return san;
-      }
-      return null;
+        return !isPrematureMate(san);
+      });
+      if (nonMating.length === 0) return null;
+      const randomIndex = Math.floor(Math.random() * nonMating.length);
+      const mv = nonMating[randomIndex];
+      return typeof mv === 'string' ? mv : mv.san;
     };
 
-    // Add some randomness to make games more balanced and unpredictable
+    // Add more randomness to make games unpredictable
     const randomFactor = Math.random();
     
+    // Early game: more random moves
+    if (this.moveCount < 10) {
+      const nonMating = legalMoves.filter(move => !isPrematureMate(move));
+      if (nonMating.length > 0) {
+        const randomMove = nonMating[Math.floor(Math.random() * nonMating.length)];
+        console.log("🎲 Early random move:", randomMove);
+        return randomMove;
+      }
+    }
+
     if (aggressive) {
       // 1) Mate-in-1 search (highest priority) - but only after minimum time
       if (elapsed >= this.minCheckmateTimeMs) {
-        for (const mv of verbose) {
+        const mateMoves = verbose.filter(mv => {
           const probe = new Chess(game.fen());
-          probe.move(mv.san);
-          if (probe.isCheckmate()) {
-            console.log("🎯 Mate-in-1 found:", mv.san);
-            return mv.san as string;
+          try {
+            probe.move(mv.san);
+            return probe.isCheckmate();
+          } catch {
+            return false;
           }
+        });
+        
+        if (mateMoves.length > 0) {
+          const randomMate = mateMoves[Math.floor(Math.random() * mateMoves.length)];
+          console.log("🎯 Random mate-in-1:", randomMate.san);
+          return randomMate.san as string;
         }
       }
 
-      // 2) Any checking move (with higher chance for more aggressive play)
+      // 2) Checking moves (random selection)
       const checks = verbose.filter((m: any) => typeof m.san === 'string' && m.san.includes('+'));
-      if (checks.length > 0 && randomFactor < 0.8) { // 80% chance to play check (increased from 70%)
-        const san = pickFirstNonMating(checks);
+      if (checks.length > 0 && randomFactor < 0.6) { // Reduced chance for more variety
+        const san = pickRandomNonMating(checks);
         if (san) {
-          console.log("⚡ Checking move selected");
+          console.log("⚡ Random checking move:", san);
           return san as string;
         }
       }
     }
 
-    // 3) Prioritize captures by piece value
+    // 3) Random captures (not always highest value)
     const captures = verbose.filter((m: any) => m.flags && m.flags.includes('c'));
-    if (captures.length > 0) {
-      // Sort captures by captured piece value
-      const pieceValues = { 'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0 };
-      const sortedCaptures = captures.sort((a, b) => {
-        const aValue = pieceValues[a.captured as keyof typeof pieceValues] || 0;
-        const bValue = pieceValues[b.captured as keyof typeof pieceValues] || 0;
-        return bValue - aValue; // Higher value first
-      });
-      
-      // Pick from top 3 highest value captures
-      const topCaptures = sortedCaptures.slice(0, Math.min(3, sortedCaptures.length));
-      const san = pickFirstNonMating(topCaptures);
+    if (captures.length > 0 && randomFactor < 0.7) {
+      const san = pickRandomNonMating(captures);
       if (san) {
-        console.log("💥 High-value capture:", san);
+        console.log("💥 Random capture:", san);
         return san as string;
       }
     }
 
-    // 4) Pawn pushes (advance pawns for promotion chances)
+    // 4) Random pawn moves
     const pawnMoves = verbose.filter((m: any) => m.piece === 'p');
-    if (pawnMoves.length > 0) {
-      // Prioritize pawn moves that advance furthest
-      const sortedPawns = pawnMoves.sort((a, b) => {
-        const aRank = parseInt(a.to[1]);
-        const bRank = parseInt(b.to[1]);
-        return bRank - aRank; // Higher rank first
-      });
-      
-      const topPawns = sortedPawns.slice(0, Math.min(2, sortedPawns.length));
-      const san = pickFirstNonMating(topPawns);
+    if (pawnMoves.length > 0 && randomFactor < 0.5) {
+      const san = pickRandomNonMating(pawnMoves);
       if (san) {
-        console.log("♟️ Pawn advance:", san);
+        console.log("♟️ Random pawn move:", san);
         return san as string;
       }
     }
 
-    // 5) Avoid drawish moves - prefer active moves
+    // 5) Random piece moves (not pawns)
+    const pieceMoves = verbose.filter((m: any) => m.piece !== 'p');
+    if (pieceMoves.length > 0 && randomFactor < 0.4) {
+      const san = pickRandomNonMating(pieceMoves);
+      if (san) {
+        console.log("🎭 Random piece move:", san);
+        return san as string;
+      }
+    }
+
+    // 6) Avoid drawish moves - but pick randomly from active moves
     const activeMove = this.pickActiveMove(legalMoves, verbose);
-    if (activeMove && !isPrematureMate(activeMove)) {
-      console.log("🎯 Active move:", activeMove);
+    if (activeMove && !isPrematureMate(activeMove) && randomFactor < 0.3) {
+      console.log("🎯 Random active move:", activeMove);
       return activeMove;
     }
 
-    // 6) Fallback - avoid repetition draws
+    // 7) Avoid repetition draws
     if (game.isThreefoldRepetition()) {
       const nonRepeatingMoves = legalMoves.filter(move => {
         const testGame = new Chess(game.fen());
@@ -186,16 +198,23 @@ export class AiChessService {
         return !testGame.isThreefoldRepetition();
       });
       if (nonRepeatingMoves.length > 0) {
-        const san = pickFirstNonMating(nonRepeatingMoves);
+        const san = pickRandomNonMating(nonRepeatingMoves);
         if (san) return san as string;
       }
     }
 
-    // 7) Final fallback - pick first non-mating legal move if under threshold
+    // 8) Final fallback - completely random legal move
     const nonMating = legalMoves.filter((m) => !isPrematureMate(m));
-    if (nonMating.length > 0) return nonMating[Math.floor(Math.random() * nonMating.length)];
+    if (nonMating.length > 0) {
+      const randomMove = nonMating[Math.floor(Math.random() * nonMating.length)];
+      console.log("🎲 Final random move:", randomMove);
+      return randomMove;
+    }
+    
     // If all moves mate (very rare), just return any legal move
-    return legalMoves[Math.floor(Math.random() * legalMoves.length)];
+    const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+    console.log("🎲 Emergency random move:", randomMove);
+    return randomMove;
   }
 
   /**

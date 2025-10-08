@@ -72,8 +72,8 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
 
   /**
    * Determine winner based on game type:
-   * - For 20-minute matches: Random winner selection (50/50 white/black), draw only if points exactly equal
-   * - For other matches: Points-based winner selection (whoever has more material wins), draw only if points exactly equal
+   * - For 20-minute matches: Random winner selection (50/50 white/black), draw only if points exactly equal AND at 20-minute time limit
+   * - For other matches: Points-based winner selection (whoever has more material wins), NO DRAWS - always pick a winner
    */
   const determineWinnerByMaterial = useCallback((g: Chess): GameResult => {
     const { whitePoints, blackPoints } = getMaterialPoints(g);
@@ -81,7 +81,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     if (is20MinMatch) {
       // 20-minute matches: Random winner selection, draw only if points exactly equal
       if (whitePoints === blackPoints) {
-        // Exactly equal points = draw
+        // Exactly equal points = draw (only at 20-minute time limit)
         return { winner: 'draw', reason: 'time', result: '1/2-1/2' } as GameResult;
       } else {
         // Random winner selection (50/50 white/black)
@@ -90,14 +90,15 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
       }
     }
     
-    // Regular matches: Points-based winner selection (whoever has more material wins)
+    // Regular matches: Points-based winner selection, NO DRAWS - always pick a winner
     if (whitePoints > blackPoints) {
       return { winner: 'white', reason: 'time', result: '1-0' } as GameResult;
     } else if (blackPoints > whitePoints) {
       return { winner: 'black', reason: 'time', result: '0-1' } as GameResult;
     } else {
-      // Exactly equal points = draw
-      return { winner: 'draw', reason: 'time', result: '1/2-1/2' } as GameResult;
+      // Exactly equal points - pick random winner instead of draw
+      const winner = Math.random() < 0.5 ? 'white' : 'black';
+      return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
     }
   }, [getMaterialPoints, is20MinMatch]);
 
@@ -312,18 +313,20 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
             }
           }
           
-          // Handle stalemate/draw: at/after minimum duration adjudicate a WINNER, otherwise continue
+          // Handle stalemate/draw: continue playing until 20-minute time limit (no early draws)
           if (newGame.isStalemate() || newGame.isDraw()) {
             const stats = aiChessService.getMatchStats();
-            const minDurationMs = 5 * 60 * 1000; // Minimum 5 minutes
+            const maxDurationMs = 20 * 60 * 1000; // 20 minutes
             
-            if (stats.elapsedTime >= minDurationMs) {
+            if (stats.elapsedTime >= maxDurationMs) {
+              // Only at 20-minute time limit - adjudicate winner (draw only if points exactly equal)
               const adjudicated = determineWinnerByMaterial(newGame);
-              console.log(`⏰ Draw/stalemate after ${Math.floor(stats.elapsedTime/60000)}:${String(Math.floor((stats.elapsedTime%60000)/1000)).padStart(2,'0')} - adjudicating winner`);
+              console.log(`⏰ 20-minute time limit reached - adjudicating winner`);
               handleGameEnd(adjudicated);
               return;
             } else {
-              console.log(`🔄 Draw/stalemate detected before 5:00 - continuing play for checkmate`);
+              // Before 20 minutes - continue playing (no draws allowed)
+              console.log(`🔄 Draw/stalemate detected before 20:00 - continuing play for checkmate`);
               return;
             }
           }
