@@ -6,7 +6,6 @@ interface MatchStatusProps {
   agent1: Agent | null;
   agent2: Agent | null;
   isPlaying: boolean;
-  moveNumber: number;
   currentTurn: "white" | "black";
   result: string | null;
   onPlayPause: () => void;
@@ -17,7 +16,6 @@ export const MatchStatus = ({
   agent1,
   agent2,
   isPlaying,
-  moveNumber,
   currentTurn,
   result,
   onPlayPause,
@@ -29,15 +27,6 @@ export const MatchStatus = ({
       <div className="container mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Move</div>
-              <div className="text-2xl font-bold font-mono text-foreground">
-                {moveNumber}
-              </div>
-            </div>
-
-            <div className="h-12 w-px bg-border" />
-
             <div>
               <div className="text-xs text-muted-foreground mb-1">Turn</div>
               <div className="flex items-center gap-2">

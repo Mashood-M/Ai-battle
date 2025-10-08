@@ -37,8 +37,6 @@ const Index = () => {
   };
 
   const currentTurn = game.turn() === "w" ? "white" : "black";
-  const moveNumber = Math.floor(game.history().length / 2) + 1;
-
   return (
     <div className="flex flex-col h-screen bg-background">
       <Header
@@ -84,7 +82,6 @@ const Index = () => {
         agent1={agent1}
         agent2={agent2}
         isPlaying={isPlaying}
-        moveNumber={moveNumber}
         currentTurn={currentTurn}
         result={result}
         onPlayPause={togglePlayPause}

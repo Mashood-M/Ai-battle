@@ -35,21 +35,7 @@ export const Header = ({
               <Crown className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-foreground">AI Battle Chess</h1>
-              <p className="text-xs text-muted-foreground">Watch AI Agents Duel</p>
-              <div className="flex gap-1 mt-1">
-                {Object.entries(apiKeys).map(([provider, key]) => (
-                  <span
-                    key={provider}
-                    className={`text-xs px-1 py-0.5 rounded ${
-                      key ? "bg-green-500/20 text-green-600" : "bg-red-500/20 text-red-600"
-                    }`}
-                    title={`${provider}: ${key ? "Set" : "Not Set"}`}
-                  >
-                    {provider}
-                  </span>
-                ))}
-              </div>
+              <h1 className="text-xl font-bold text-foreground">AI Battle</h1>
             </div>
           </div>
 

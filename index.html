@@ -25,5 +25,24 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Suppress browser extension errors -->
+    <script>
+      // Suppress runtime.lastError messages from browser extensions
+      window.addEventListener('error', function(e) {
+        if (e.message && e.message.includes('runtime.lastError')) {
+          e.preventDefault();
+          return false;
+        }
+      });
+      
+      // Suppress unhandled promise rejections from extensions
+      window.addEventListener('unhandledrejection', function(e) {
+        if (e.reason && e.reason.message && e.reason.message.includes('runtime.lastError')) {
+          e.preventDefault();
+          return false;
+        }
+      });
+    </script>
   </body>
 </html>

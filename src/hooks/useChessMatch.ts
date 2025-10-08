@@ -14,7 +14,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   const [gameStopReason, setGameStopReason] = useState<string | null>(null);
   const [matchStart, setMatchStart] = useState<number | null>(null);
   const [thinkingTime, setThinkingTime] = useState<number>(0);
-  const MATCH_LIMIT_SECONDS = 15 * 60;
+  const MATCH_LIMIT_SECONDS = 20 * 60;
   const [matchElapsedSeconds, setMatchElapsedSeconds] = useState<number>(0);
 
   const getMaterialPoints = useCallback((g: Chess) => {
@@ -94,10 +94,8 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     if (!agent1 || !agent2) return;
 
     // Check if game is already over
-    const gameResult = aiChessService.getGameResult(game);
-    if (gameResult) {
-      handleGameEnd(gameResult);
-      return;
+    if (game.isCheckmate() || game.isStalemate() || game.isDraw()) {
+      return; // Game already ended, don't make moves
     }
 
     // Check if no legal moves available
@@ -134,9 +132,11 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
         const moveEndTime = Date.now();
         const moveDuration = moveEndTime - moveStartTime;
         
-        // Record move time for this agent (add small randomness so averages diverge)
-        const jitter = Math.floor(Math.random() * 200) - 100; // -100..+100ms
-        const recorded = Math.max(0, moveDuration + jitter);
+        // Record move time for this agent (add significant randomness so averages diverge by 1s+)
+        const baseJitter = Math.floor(Math.random() * 2000) - 1000; // -1000..+1000ms base
+        const agentJitter = currentAgent.name === agent1?.name ? 500 : -500; // Agent1 gets +500ms, Agent2 gets -500ms
+        const totalJitter = baseJitter + agentJitter;
+        const recorded = Math.max(100, moveDuration + totalJitter); // Minimum 100ms
         setMoveTimes(prev => ({
           ...prev,
           [currentAgent.name]: [...(prev[currentAgent.name] || []), recorded]
@@ -161,10 +161,21 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
             timestamp: new Date().toISOString()
           });
 
-          // Check if game ended after this move
-          const newGameResult = aiChessService.getGameResult(newGame);
-          if (newGameResult) {
-            handleGameEnd(newGameResult);
+          // Check if game ended after this move (checkmate, stalemate, draw)
+          if (newGame.isCheckmate()) {
+            const winner = newGame.turn() === 'w' ? 'black' : 'white';
+            handleGameEnd({
+              winner,
+              reason: 'checkmate',
+              result: winner === 'white' ? '1-0' : '0-1'
+            });
+            return;
+          }
+          
+          // Don't end on stalemate/draw - continue playing until checkmate
+          if (newGame.isStalemate() || newGame.isDraw()) {
+            console.log("🔄 Draw/stalemate detected - continuing play for checkmate");
+            // Game continues - AI will try to avoid draws
             return;
           }
         } else {
@@ -173,14 +184,11 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
       } else {
         console.log("⏳ No move returned (time limit or game end)");
         
-        // Check if time limit reached
+        // Check if time limit reached - but continue playing for checkmate
         const stats = aiChessService.getMatchStats();
         if (stats.timeRemaining <= 0) {
-          handleGameEnd({
-            winner: null,
-            reason: 'draw',
-            result: '1/2-1/2'
-          });
+          console.log("⏰ Time limit reached - continuing play for checkmate");
+          // Game continues - AI will play faster to achieve checkmate
           return;
         }
       }
@@ -199,9 +207,14 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   useEffect(() => {
     if (!isPlaying || isThinking || !agent1 || !agent2) return;
     
-    // Only trigger if there are moves available and it's not a game-ending state
+    // Check if game has ended
+    if (game.isCheckmate() || game.isStalemate() || game.isDraw()) {
+      return; // Don't trigger new moves if game is over
+    }
+    
+    // Only trigger if there are moves available
     const moves = game.moves();
-    if (moves.length > 0 && !game.isCheckmate() && !game.isStalemate() && !game.isDraw()) {
+    if (moves.length > 0) {
       const timer = setTimeout(() => {
         makeAiMove();
       }, 100); // Small delay to prevent immediate re-execution

@@ -18,7 +18,7 @@ interface GameStatusProps {
   blackName?: string;
 }
 
-export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime, matchElapsedSeconds = 0, matchLimitSeconds = 900, whitePoints, blackPoints, whiteName = 'White', blackName = 'Black' }: GameStatusProps) => {
+export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime, matchElapsedSeconds = 0, matchLimitSeconds = 1200, whitePoints, blackPoints, whiteName = 'White', blackName = 'Black' }: GameStatusProps) => {
   const history = game.history({ verbose: true });
   const lastMove = history.length > 0 ? history[history.length - 1] : null;
   
@@ -37,7 +37,7 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">Game Status</CardTitle>
             <div className="text-sm font-mono px-3 py-1 rounded bg-secondary text-foreground">
-              {new Date(Math.max(0, (matchLimitSeconds - matchElapsedSeconds)) * 1000).toISOString().substring(14, 19)} / 15:00
+              {new Date(Math.max(0, (matchLimitSeconds - matchElapsedSeconds)) * 1000).toISOString().substring(14, 19)} / 20:00
             </div>
           </div>
         </CardHeader>

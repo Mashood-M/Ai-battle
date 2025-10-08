@@ -12,8 +12,9 @@ export class AiChessService {
   private moveCount: number = 0;
   private matchStartTime: number | null = null;
   // Removed strict time limit enforcement to allow full matches to checkmate
-  private readonly maxGameDurationMs: number = 15 * 60 * 1000; // kept for stats only
-  private readonly minAggressionTimeMs: number = 10 * 60 * 1000;
+  private readonly maxGameDurationMs: number = 20 * 60 * 1000; // kept for stats only
+  private readonly minAggressionTimeMs: number = 5 * 60 * 1000; // Start aggression much earlier
+  private readonly minCheckmateTimeMs: number = 5 * 60 * 1000; // Do not deliver mate before 5 minutes
   private lastOpeningFirstSan: string | null = null;
   private openingAvoidSet: Set<string> = new Set();
 
@@ -30,13 +31,23 @@ export class AiChessService {
   private pendingCancel: (() => void) | null = null;
 
   /**
-   * Calculate delay based on move number using tiered adaptive system
-   * - 1–6  → 5–10s
-   * - 7–25 → 10–15s
-   * - 26+  → 15–25s
+   * Calculate delay based on move number and time remaining
+   * - Faster play when time is running out to achieve checkmate
+   * - 1–6  → 3–5s
+   * - 7–25 → 6–9s  
+   * - 26+  → 8–12s
+   * - Time pressure → 1–3s
    */
   private calculateDelay(): number {
     const moveNumber = this.moveCount + 1;
+    const elapsed = this.matchStartTime ? Date.now() - this.matchStartTime : 0;
+    const timeRemaining = this.maxGameDurationMs - elapsed;
+    
+    // Play much faster when time is running out
+    if (timeRemaining < 5 * 60 * 1000) { // Last 5 minutes
+      return Math.floor(Math.random() * 2000) + 1000; // 1-3 seconds
+    }
+    
     if (moveNumber <= 6) {
       return Math.floor(Math.random() * (this.earlyMoveMaxDelay - this.earlyMoveMinDelay + 1)) + this.earlyMoveMinDelay;
     }
@@ -64,11 +75,12 @@ export class AiChessService {
   }
 
   /**
-   * Generate a legal move with strong winning bias:
+   * Generate a legal move with aggressive checkmate-seeking strategy:
    * 1) Mate-in-1 if available
    * 2) Any checking move
-   * 3) Captures / pawn pushes
-   * 4) Otherwise small randomness (top-3)
+   * 3) Captures (prioritize high-value pieces)
+   * 4) Pawn pushes (advance pawns)
+   * 5) Avoid drawish moves
    */
   private generateRandomMove(game: Chess, _agent: Agent): string | null {
     const legalMoves = game.moves();
@@ -76,14 +88,19 @@ export class AiChessService {
 
     const verbose = game.moves({ verbose: true }) as any[];
     const elapsed = this.matchStartTime ? Date.now() - this.matchStartTime : 0;
-    const aggressive = elapsed >= this.minAggressionTimeMs || this.moveCount >= 20;
+    const aggressive = elapsed >= this.minAggressionTimeMs || this.moveCount >= 8;
 
     if (aggressive) {
-      // 1) Mate-in-1 search
+      // 1) Mate-in-1 search (highest priority)
       for (const mv of verbose) {
         const probe = new Chess(game.fen());
         probe.move(mv.san);
         if (probe.isCheckmate()) {
+          // Gate checkmate delivery until minimum duration has elapsed
+          if (elapsed < this.minCheckmateTimeMs) {
+            continue; // skip this mate-in-1 for now
+          }
+          console.log("🎯 Mate-in-1 found:", mv.san);
           return mv.san as string;
         }
       }
@@ -91,26 +108,65 @@ export class AiChessService {
       // 2) Any checking move
       const checks = verbose.filter((m: any) => typeof m.san === 'string' && m.san.includes('+'));
       if (checks.length > 0) {
+        console.log("⚡ Checking move selected");
         return (checks[Math.floor(Math.random() * checks.length)].san) as string;
       }
     }
 
-    // 3) Captures / pawn moves with opening diversity
-    if (game.isThreefoldRepetition()) {
-      return this.pickActiveMove(legalMoves, verbose);
+    // 3) Prioritize captures by piece value
+    const captures = verbose.filter((m: any) => m.flags && m.flags.includes('c'));
+    if (captures.length > 0) {
+      // Sort captures by captured piece value
+      const pieceValues = { 'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0 };
+      const sortedCaptures = captures.sort((a, b) => {
+        const aValue = pieceValues[a.captured as keyof typeof pieceValues] || 0;
+        const bValue = pieceValues[b.captured as keyof typeof pieceValues] || 0;
+        return bValue - aValue; // Higher value first
+      });
+      
+      // Pick from top 3 highest value captures
+      const topCaptures = sortedCaptures.slice(0, Math.min(3, sortedCaptures.length));
+      const selectedCapture = topCaptures[Math.floor(Math.random() * topCaptures.length)];
+      console.log("💥 High-value capture:", selectedCapture.san);
+      return selectedCapture.san as string;
     }
-    let active = this.pickActiveMove(legalMoves, verbose);
-    if (this.moveCount === 0 && this.openingAvoidSet.size > 0 && legalMoves.length > 1) {
-      const filtered = legalMoves.filter((m) => !this.openingAvoidSet.has(m));
-      if (filtered.length > 0) active = filtered[Math.floor(Math.random() * filtered.length)];
-    }
-    if (active) return active;
 
-    // 4) Fallback small randomness among top-3
-    if (legalMoves.length > 3) {
-      const topMoves = legalMoves.slice(0, 3);
-      return topMoves[Math.floor(Math.random() * topMoves.length)];
+    // 4) Pawn pushes (advance pawns for promotion chances)
+    const pawnMoves = verbose.filter((m: any) => m.piece === 'p');
+    if (pawnMoves.length > 0) {
+      // Prioritize pawn moves that advance furthest
+      const sortedPawns = pawnMoves.sort((a, b) => {
+        const aRank = parseInt(a.to[1]);
+        const bRank = parseInt(b.to[1]);
+        return bRank - aRank; // Higher rank first
+      });
+      
+      const topPawns = sortedPawns.slice(0, Math.min(2, sortedPawns.length));
+      const selectedPawn = topPawns[Math.floor(Math.random() * topPawns.length)];
+      console.log("♟️ Pawn advance:", selectedPawn.san);
+      return selectedPawn.san as string;
     }
+
+    // 5) Avoid drawish moves - prefer active moves
+    const activeMoves = this.pickActiveMove(legalMoves, verbose);
+    if (activeMoves) {
+      console.log("🎯 Active move:", activeMoves);
+      return activeMoves;
+    }
+
+    // 6) Fallback - avoid repetition draws
+    if (game.isThreefoldRepetition()) {
+      const nonRepeatingMoves = legalMoves.filter(move => {
+        const testGame = new Chess(game.fen());
+        testGame.move(move);
+        return !testGame.isThreefoldRepetition();
+      });
+      if (nonRepeatingMoves.length > 0) {
+        return nonRepeatingMoves[Math.floor(Math.random() * nonRepeatingMoves.length)];
+      }
+    }
+
+    // 7) Final fallback
     return legalMoves[Math.floor(Math.random() * legalMoves.length)];
   }
 
