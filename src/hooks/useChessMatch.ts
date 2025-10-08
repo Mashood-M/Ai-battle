@@ -33,16 +33,16 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   const MATCH_LIMIT_SECONDS = 20 * 60;
   const [matchElapsedSeconds, setMatchElapsedSeconds] = useState<number>(0);
 
+  const getMaterialPoints = useCallback((g: Chess) => computeMaterialScore(g), []);
+
   const determineWinnerByMaterial = useCallback((g: Chess): GameResult => {
-    const { white, black } = getMaterialPoints(g);
-    if (white === black) {
+    const { whitePoints, blackPoints } = getMaterialPoints(g);
+    if (whitePoints === blackPoints) {
       return { winner: 'draw', reason: 'time', result: '1/2-1/2' } as GameResult;
     }
-    const winner = white > black ? 'white' : 'black';
+    const winner = whitePoints > blackPoints ? 'white' : 'black';
     return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
   }, [getMaterialPoints]);
-
-  const getMaterialPoints = useCallback((g: Chess) => computeMaterialScore(g), []);
 
   // On mount, ensure any previous persisted state is cleared so refresh starts a new game
   useEffect(() => {
