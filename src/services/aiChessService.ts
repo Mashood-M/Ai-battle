@@ -13,6 +13,9 @@ export class AiChessService {
   private matchStartTime: number | null = null;
   // Removed strict time limit enforcement to allow full matches to checkmate
   private readonly maxGameDurationMs: number = 15 * 60 * 1000; // kept for stats only
+  private readonly minAggressionTimeMs: number = 10 * 60 * 1000;
+  private lastOpeningFirstSan: string | null = null;
+  private openingAvoidSet: Set<string> = new Set();
 
   // Delay system configuration (tiered adaptive delays)
   // Target ranges per request
@@ -22,6 +25,9 @@ export class AiChessService {
   private readonly midMoveMaxDelay = 9000;
   private readonly lateMoveMinDelay = 8000;    // moves 26+: 8s - 12s
   private readonly lateMoveMaxDelay = 12000;
+
+  // Cancellation support to stop immediately when paused
+  private pendingCancel: (() => void) | null = null;
 
   /**
    * Calculate delay based on move number using tiered adaptive system
@@ -58,26 +64,54 @@ export class AiChessService {
   }
 
   /**
-   * Generate a legal move with small personality/randomness and draw-avoidance bias
+   * Generate a legal move with strong winning bias:
+   * 1) Mate-in-1 if available
+   * 2) Any checking move
+   * 3) Captures / pawn pushes
+   * 4) Otherwise small randomness (top-3)
    */
   private generateRandomMove(game: Chess, _agent: Agent): string | null {
     const legalMoves = game.moves();
     if (legalMoves.length === 0) return null;
 
-    // Use verbose to detect captures/pawns to bias away from quick draws
     const verbose = game.moves({ verbose: true }) as any[];
+    const elapsed = this.matchStartTime ? Date.now() - this.matchStartTime : 0;
+    const aggressive = elapsed >= this.minAggressionTimeMs || this.moveCount >= 20;
 
-    // If repetition likely, prefer active moves to break cycles
+    if (aggressive) {
+      // 1) Mate-in-1 search
+      for (const mv of verbose) {
+        const probe = new Chess(game.fen());
+        probe.move(mv.san);
+        if (probe.isCheckmate()) {
+          return mv.san as string;
+        }
+      }
+
+      // 2) Any checking move
+      const checks = verbose.filter((m: any) => typeof m.san === 'string' && m.san.includes('+'));
+      if (checks.length > 0) {
+        return (checks[Math.floor(Math.random() * checks.length)].san) as string;
+      }
+    }
+
+    // 3) Captures / pawn moves with opening diversity
     if (game.isThreefoldRepetition()) {
       return this.pickActiveMove(legalMoves, verbose);
     }
+    let active = this.pickActiveMove(legalMoves, verbose);
+    if (this.moveCount === 0 && this.openingAvoidSet.size > 0 && legalMoves.length > 1) {
+      const filtered = legalMoves.filter((m) => !this.openingAvoidSet.has(m));
+      if (filtered.length > 0) active = filtered[Math.floor(Math.random() * filtered.length)];
+    }
+    if (active) return active;
 
-    // AI Personality: pick from top-3 randomly if many options, otherwise active bias
+    // 4) Fallback small randomness among top-3
     if (legalMoves.length > 3) {
       const topMoves = legalMoves.slice(0, 3);
       return topMoves[Math.floor(Math.random() * topMoves.length)];
     }
-    return this.pickActiveMove(legalMoves, verbose);
+    return legalMoves[Math.floor(Math.random() * legalMoves.length)];
   }
 
   /**
@@ -102,6 +136,10 @@ export class AiChessService {
     this.matchDifficulty = Math.max(1, Math.min(5, difficulty));
     this.moveCount = 0;
     this.matchStartTime = Date.now();
+    if (this.lastOpeningFirstSan) this.openingAvoidSet.add(this.lastOpeningFirstSan);
+    if (this.openingAvoidSet.size > 8) {
+      this.openingAvoidSet = new Set(Array.from(this.openingAvoidSet).slice(-8));
+    }
     
     console.log("🎲 Match initialized:", {
       difficulty: this.matchDifficulty,
@@ -135,8 +173,22 @@ export class AiChessService {
       timestamp: new Date().toISOString()
     });
 
-    // Wait for the calculated delay
-    await new Promise(resolve => setTimeout(resolve, delay));
+    // Wait for the calculated delay, but allow cancellation to interrupt
+    const cancelPromise = new Promise<void>((resolve) => {
+      this.pendingCancel = () => resolve();
+    });
+    await Promise.race([
+      new Promise((resolve) => setTimeout(resolve, delay)),
+      cancelPromise,
+    ]);
+
+    // If canceled, return null immediately
+    if (this.pendingCancel === null) {
+      // canceled already consumed
+      return null;
+    }
+    // clear cancel hook for next move
+    this.pendingCancel = null;
 
     // Generate random legal move
     const move = this.generateRandomMove(game, agent);
@@ -172,6 +224,7 @@ export class AiChessService {
     this.reset();
     this.initializeMatch(this.matchDifficulty);
 
+    const startMs = Date.now();
     while (!chess.isCheckmate()) {
       // Determine current agent
       const agent = chess.turn() === 'w' ? white : black;
@@ -179,14 +232,21 @@ export class AiChessService {
       const delay = this.calculateDelay();
       await new Promise((res) => setTimeout(res, delay));
 
+      // Do not hard-stop by time; we aim to finish by checkmate
+
       // Generate and play a legal move
       const legalMoves = chess.moves();
       if (legalMoves.length === 0) break;
       // Bias away from draws if possible
       const verbose = chess.moves({ verbose: true }) as any[];
       let pick = this.pickActiveMove(legalMoves, verbose);
+      if (this.moveCount === 0 && this.openingAvoidSet.size > 0 && legalMoves.length > 1) {
+        const filtered = legalMoves.filter((m) => !this.openingAvoidSet.has(m));
+        if (filtered.length > 0) pick = filtered[Math.floor(Math.random() * filtered.length)];
+      }
       chess.move(pick);
       this.moveCount += 1;
+      if (this.moveCount === 1) this.lastOpeningFirstSan = pick;
 
       if (updateUI) updateUI(chess.fen());
     }
@@ -219,6 +279,15 @@ export class AiChessService {
       elapsedTime: this.matchStartTime ? Date.now() - this.matchStartTime : 0,
       timeRemaining: this.matchStartTime ? Math.max(0, this.maxGameDurationMs - (Date.now() - this.matchStartTime)) : 0
     };
+  }
+
+  // External cancel to stop thinking delay immediately
+  public cancelThinking(): void {
+    if (this.pendingCancel) {
+      const fn = this.pendingCancel;
+      this.pendingCancel = null;
+      try { fn(); } catch {}
+    }
   }
 
   /**

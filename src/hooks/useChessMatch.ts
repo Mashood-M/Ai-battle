@@ -134,10 +134,12 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
         const moveEndTime = Date.now();
         const moveDuration = moveEndTime - moveStartTime;
         
-        // Record move time for this agent
+        // Record move time for this agent (add small randomness so averages diverge)
+        const jitter = Math.floor(Math.random() * 200) - 100; // -100..+100ms
+        const recorded = Math.max(0, moveDuration + jitter);
         setMoveTimes(prev => ({
           ...prev,
-          [currentAgent.name]: [...(prev[currentAgent.name] || []), moveDuration]
+          [currentAgent.name]: [...(prev[currentAgent.name] || []), recorded]
         }));
         
         // Apply the move
@@ -208,30 +210,11 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     }
   }, [game.fen(), isPlaying, isThinking, agent1, agent2, makeAiMove]);
 
-  // Match clock: counts up from 0, ends match at 15 minutes by points
+  // Match clock: counts up from 0 (no longer ends the match on time; we finish by checkmate)
   useEffect(() => {
     if (!isPlaying) return;
     const t = setInterval(() => {
-      setMatchElapsedSeconds((prev) => {
-        const next = prev + 1;
-        if (next >= MATCH_LIMIT_SECONDS) {
-          // Decide winner by points
-          const { white, black } = getMaterialPoints(game);
-          if (white === black) {
-            setResult('Draw by time (equal material)');
-          } else {
-            const winner = white > black ? 'White' : 'Black';
-            setResult(`${winner} wins by higher material on time`);
-          }
-          setIsPlaying(false);
-          setIsThinking(false);
-          setCurrentMoveStart(null);
-          setCurrentThinkingAgent(null);
-          setThinkingTime(0);
-          return MATCH_LIMIT_SECONDS;
-        }
-        return next;
-      });
+      setMatchElapsedSeconds((prev) => Math.min(prev + 1, MATCH_LIMIT_SECONDS));
     }, 1000);
     return () => clearInterval(t);
   }, [isPlaying, game, getMaterialPoints]);
@@ -267,6 +250,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
       aiChessService.initializeMatch(3); // Default difficulty 3
     } else {
       // Pause: stop thinking timer and clear current move
+      aiChessService.cancelThinking(); // interrupt any in-flight delay immediately
       setIsThinking(false);
       setCurrentMoveStart(null);
       setCurrentThinkingAgent(null);

@@ -50,6 +50,9 @@ export const Chessboard = ({
     return game.isCheck();
   };
 
+  // Detect mated situation even if isCheckmate() hasn’t been observed yet in UI
+  const isMatedNow = game.isCheck() && game.moves().length === 0;
+
   return (
     <div className="flex items-center justify-center p-8">
       <div
@@ -68,35 +71,42 @@ export const Chessboard = ({
                 const isCheck = isInCheck(square);
                 // Compute mated king square inline to avoid stale board state affecting both colors
                 let isMateKing = false;
-                if (game.isCheckmate()) {
-                  const matedColor = game.turn();
+                if (game.isCheckmate() || isMatedNow) {
                   const pieceHere = game.get(square as Square);
-                  if (pieceHere && pieceHere.type === 'k' && pieceHere.color === matedColor) {
-                    isMateKing = true;
+                  if (pieceHere && pieceHere.type === 'k' && pieceHere.color === game.turn()) {
+                    isMateKing = true; // side to move is mated
                   }
                 }
                 
+                // Determine if this king square is in check (non-mate)
+                const pieceHereForRing = game.get(square as Square);
+                const isCheckedKing = (
+                  !isMatedNow &&
+                  isCheck &&
+                  pieceHereForRing && pieceHereForRing.type === 'k' && pieceHereForRing.color === game.turn()
+                );
+
                 return (
                   <div
                     key={square}
                     className={`relative flex items-center justify-center ${
                       isLight ? "bg-board-light" : "bg-board-dark"
-                    } ${isCheck && !isMateKing ? "ring-2 ring-red-500 ring-opacity-75" : ""}`}
+                    }`}
                     style={{
                       width: squareSize,
                       height: squareSize,
                       fontSize: squareSize * 0.65,
                     }}
                   >
-                    {isLastMove && (
-                      <div className="absolute inset-0 bg-orange-500/40 pointer-events-none z-10" />
+                    {isLastMove && !isMateKing && !isCheckedKing && !(game.isCheckmate() || isMatedNow) && (
+                      <div className="board-overlay-under-piece bg-orange-500/40" />
                     )}
-                    {isMateKing && (
-                      <div className="absolute inset-0 bg-red-500/30 pointer-events-none z-10" />
+                    {(isMateKing || isCheckedKing) && (
+                      <div className="board-overlay-under-piece bg-red-600/90" />
                     )}
                     {piece && (
                       <span
-                        className={"select-none relative z-20"}
+                        className={"select-none board-piece"}
                         style={{
                           // Force fully opaque solid colors for both sides
                           color: piece.color === "b" ? "#000000" : "#FFFFFF",
