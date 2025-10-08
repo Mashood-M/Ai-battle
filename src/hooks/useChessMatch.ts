@@ -17,6 +17,15 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   const MATCH_LIMIT_SECONDS = 20 * 60;
   const [matchElapsedSeconds, setMatchElapsedSeconds] = useState<number>(0);
 
+  const determineWinnerByMaterial = useCallback((g: Chess): GameResult => {
+    const { white, black } = getMaterialPoints(g);
+    if (white === black) {
+      return { winner: 'draw', reason: 'time', result: '1/2-1/2' } as GameResult;
+    }
+    const winner = white > black ? 'white' : 'black';
+    return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
+  }, [getMaterialPoints]);
+
   const getMaterialPoints = useCallback((g: Chess) => {
     const board = g.board();
     const values: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
@@ -246,6 +255,44 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
 
     return () => clearInterval(interval);
   }, [isThinking, currentMoveStart]);
+
+  // Auto-stop logic:
+  // - Hard cap at 20:00
+  // - Early termination window 5–10 min: low probability checks
+  // - Early termination window 10–20 min: higher probability checks
+  useEffect(() => {
+    if (!isPlaying) return;
+    if (game.isCheckmate()) return; // already ended
+
+    // Hard cap at 20 minutes
+    if (matchElapsedSeconds >= MATCH_LIMIT_SECONDS) {
+      const res = determineWinnerByMaterial(game);
+      handleGameEnd(res);
+      return;
+    }
+
+    // Early termination windows
+    // Check once per 15 seconds for a probabilistic stop, tuned distribution:
+    // - 5–10 min: some games end (low probability)
+    // - 10–15 min: most games end (higher probability)
+    // - 15–20 min: some games end (moderate probability)
+    if (matchElapsedSeconds > 0 && matchElapsedSeconds % 15 === 0) {
+      const minutes = matchElapsedSeconds / 60;
+      let probability = 0;
+      if (minutes >= 5 && minutes < 10) {
+        probability = 0.06; // low chance 5–10
+      } else if (minutes >= 10 && minutes < 15) {
+        probability = 0.20; // high chance 10–15 (most end here)
+      } else if (minutes >= 15 && minutes < 20) {
+        probability = 0.10; // moderate chance 15–20
+      }
+
+      if (probability > 0 && Math.random() < probability) {
+        const res = determineWinnerByMaterial(game);
+        handleGameEnd({ ...res, reason: 'adjudication' });
+      }
+    }
+  }, [isPlaying, matchElapsedSeconds, MATCH_LIMIT_SECONDS, game, determineWinnerByMaterial, handleGameEnd]);
 
   /**
    * Toggle play/pause with proper state management
