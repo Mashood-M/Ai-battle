@@ -71,21 +71,15 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
    * Handle game end with proper result formatting
    */
   const handleGameEnd = useCallback((gameResult: GameResult) => {
-    let resultText = "";
-    
-    switch (gameResult.result) {
-      case '1-0':
-        resultText = `White wins by ${gameResult.reason}!`;
-        break;
-      case '0-1':
-        resultText = `Black wins by ${gameResult.reason}!`;
-        break;
-      case '1/2-1/2':
-        resultText = `Draw by ${gameResult.reason}!`;
-        break;
+    // Only show result when there is a decisive winner
+    if (gameResult.result === '1-0') {
+      setResult(`White wins by ${gameResult.reason}!`);
+    } else if (gameResult.result === '0-1') {
+      setResult(`Black wins by ${gameResult.reason}!`);
+    } else {
+      // Hide result for draws
+      setResult(null);
     }
-
-    setResult(resultText);
     setIsPlaying(false);
     setIsThinking(false);
     setCurrentMoveStart(null);
@@ -94,7 +88,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     
     console.log("🏁 Game ended:", {
       result: gameResult,
-      resultText,
+      resultText: gameResult.result,
       timestamp: new Date().toISOString()
     });
   }, []);
