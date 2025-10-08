@@ -10,8 +10,12 @@ interface GameStatusProps {
   currentThinkingAgent: string | null;
   isThinking: boolean;
   thinkingTime: number;
+  isPlaying: boolean;
   matchElapsedSeconds?: number;
   matchLimitSeconds?: number;
+  currentGameDuration?: number;
+  is20MinMatch?: boolean;
+  isOnline?: boolean;
   matchEndTime?: number | null;
   whitePoints?: number;
   blackPoints?: number;
@@ -19,7 +23,7 @@ interface GameStatusProps {
   blackName?: string;
 }
 
-export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime, matchElapsedSeconds = 0, matchLimitSeconds = 1200, matchEndTime, whitePoints, blackPoints, whiteName = 'White', blackName = 'Black' }: GameStatusProps) => {
+export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingAgent, isThinking, thinkingTime, isPlaying, matchElapsedSeconds = 0, matchLimitSeconds = 1200, currentGameDuration, is20MinMatch, isOnline, matchEndTime, whitePoints, blackPoints, whiteName = 'White', blackName = 'Black' }: GameStatusProps) => {
   const history = game.history({ verbose: true });
   const lastMove = history.length > 0 ? history[history.length - 1] : null;
   
@@ -31,16 +35,24 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
 
   const gameEnded = game.isCheckmate() || game.isStalemate() || game.isDraw();
   
-  // Format timer display - show exact stopped time if game ended
+  // Format timer display - always countdown from 20:00 to 0:00
   const formatTimer = () => {
     if (matchEndTime) {
-      // Game ended - show exact stopped time
+      // Game actually ended - show final stopped time
       const minutes = Math.floor(matchElapsedSeconds / 60);
       const seconds = matchElapsedSeconds % 60;
       return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} (STOPPED)`;
+    } else if (!isPlaying && matchElapsedSeconds > 0) {
+      // Game paused/disconnected - show current stopped time
+      const minutes = Math.floor(matchElapsedSeconds / 60);
+      const seconds = matchElapsedSeconds % 60;
+      return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     } else {
-      // Game running - show countdown
-      return `${new Date(Math.max(0, (matchLimitSeconds - matchElapsedSeconds)) * 1000).toISOString().substring(14, 19)} / 20:00`;
+      // Game running or not started - show countdown from 20:00 to 0:00
+      const remainingSeconds = Math.max(0, 1200 - matchElapsedSeconds); // Always countdown from 20:00 (1200 seconds)
+      const minutes = Math.floor(remainingSeconds / 60);
+      const seconds = remainingSeconds % 60;
+      return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
   };
 
@@ -50,8 +62,25 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">Game Status</CardTitle>
-            <div className="text-sm font-mono px-3 py-1 rounded bg-secondary text-foreground">
-              {formatTimer()}
+            <div className="flex items-center gap-2">
+              {isOnline === false && (
+                <Badge variant="destructive" className="text-xs">
+                  📡 Offline
+                </Badge>
+              )}
+              {is20MinMatch && (
+                <Badge variant="outline" className="text-xs">
+                  20-Min Match
+                </Badge>
+              )}
+              {!is20MinMatch && currentGameDuration && currentGameDuration < 1200 && (
+                <Badge variant="outline" className="text-xs">
+                  Variable Match
+                </Badge>
+              )}
+              <div className="text-sm font-mono px-3 py-1 rounded bg-secondary text-foreground">
+                {formatTimer()}
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -65,11 +94,6 @@ export const GameStatus = ({ game, moveTimes, currentMoveStart, currentThinkingA
             </Badge>
           </div>
           
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Move Number:</span>
-            <span className="text-sm">{Math.floor(game.history().length / 2) + 1}</span>
-          </div>
-
           {lastMove && (
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Last Move:</span>

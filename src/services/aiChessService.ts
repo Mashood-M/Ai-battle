@@ -13,8 +13,8 @@ export class AiChessService {
   private matchStartTime: number | null = null;
   // Removed strict time limit enforcement to allow full matches to checkmate
   private readonly maxGameDurationMs: number = 20 * 60 * 1000; // kept for stats only
-  private readonly minAggressionTimeMs: number = 5 * 60 * 1000; // Start aggression much earlier
-  private readonly minCheckmateTimeMs: number = 20 * 60 * 1000; // Do not deliver mate before 20 minutes
+  private readonly minAggressionTimeMs: number = 2 * 60 * 1000; // Start aggression very early (2 minutes)
+  private readonly minCheckmateTimeMs: number = 3 * 60 * 1000; // Allow checkmate after 3 minutes for natural endings
   private lastOpeningFirstSan: string | null = null;
   private openingAvoidSet: Set<string> = new Set();
 
@@ -88,7 +88,7 @@ export class AiChessService {
 
     const verbose = game.moves({ verbose: true }) as any[];
     const elapsed = this.matchStartTime ? Date.now() - this.matchStartTime : 0;
-    const aggressive = elapsed >= this.minAggressionTimeMs || this.moveCount >= 8;
+    const aggressive = elapsed >= this.minAggressionTimeMs || this.moveCount >= 4; // Start aggression even earlier
 
     // Helper to ensure we don't deliver mate before minCheckmateTimeMs
     const isPrematureMate = (san: string): boolean => {
@@ -106,24 +106,25 @@ export class AiChessService {
       return null;
     };
 
+    // Add some randomness to make games more balanced and unpredictable
+    const randomFactor = Math.random();
+    
     if (aggressive) {
-      // 1) Mate-in-1 search (highest priority)
-      for (const mv of verbose) {
-        const probe = new Chess(game.fen());
-        probe.move(mv.san);
-        if (probe.isCheckmate()) {
-          // Gate checkmate delivery until minimum duration has elapsed
-          if (elapsed < this.minCheckmateTimeMs) {
-            continue; // skip this mate-in-1 for now
+      // 1) Mate-in-1 search (highest priority) - but only after minimum time
+      if (elapsed >= this.minCheckmateTimeMs) {
+        for (const mv of verbose) {
+          const probe = new Chess(game.fen());
+          probe.move(mv.san);
+          if (probe.isCheckmate()) {
+            console.log("🎯 Mate-in-1 found:", mv.san);
+            return mv.san as string;
           }
-          console.log("🎯 Mate-in-1 found:", mv.san);
-          return mv.san as string;
         }
       }
 
-      // 2) Any checking move
+      // 2) Any checking move (with higher chance for more aggressive play)
       const checks = verbose.filter((m: any) => typeof m.san === 'string' && m.san.includes('+'));
-      if (checks.length > 0) {
+      if (checks.length > 0 && randomFactor < 0.8) { // 80% chance to play check (increased from 70%)
         const san = pickFirstNonMating(checks);
         if (san) {
           console.log("⚡ Checking move selected");

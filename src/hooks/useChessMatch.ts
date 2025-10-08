@@ -33,41 +33,130 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
   const MATCH_LIMIT_SECONDS = 20 * 60;
   const [matchElapsedSeconds, setMatchElapsedSeconds] = useState<number>(0);
   const [matchEndTime, setMatchEndTime] = useState<number | null>(null);
+  const [isLooping, setIsLooping] = useState<boolean>(false);
+  const [loopTimeoutId, setLoopTimeoutId] = useState<NodeJS.Timeout | null>(null);
+  const [currentGameDuration, setCurrentGameDuration] = useState<number>(0); // Current game's target duration in seconds
+  const [is20MinMatch, setIs20MinMatch] = useState<boolean>(false); // Whether this match should end at exactly 20 minutes
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine); // Internet connectivity status
 
   const getMaterialPoints = useCallback((g: Chess) => computeMaterialScore(g), []);
 
+  /**
+   * Generate random game duration based on the specified distribution:
+   * - Randomly 1-5 matches end at exactly 20 minutes (1200 seconds)
+   * - Other matches: 80% chance 10-15 minutes, 15% chance 5-8 minutes, 5% chance 8-10 minutes
+   * - Minimum duration: 5 minutes (300 seconds)
+   */
+  const generateRandomGameDuration = useCallback((): { duration: number; is20Min: boolean } => {
+    // Randomly decide if this should be a 20-minute match (1-5 chance)
+    const shouldBe20Min = Math.random() < 0.2; // 20% chance = roughly 1 in 5 matches
+    
+    if (shouldBe20Min) {
+      return { duration: 1200, is20Min: true }; // Exactly 20 minutes
+    }
+    
+    // Regular variable duration matches with minimum 5 minutes
+    const roll = Math.random();
+    
+    if (roll < 0.8) {
+      // 80% chance: 10-15 minutes (most common)
+      return { duration: Math.floor(Math.random() * (900 - 600 + 1)) + 600, is20Min: false };
+    } else if (roll < 0.95) {
+      // 15% chance: 5-8 minutes  
+      return { duration: Math.floor(Math.random() * (480 - 300 + 1)) + 300, is20Min: false };
+    } else {
+      // 5% chance: 8-10 minutes
+      return { duration: Math.floor(Math.random() * (600 - 480 + 1)) + 480, is20Min: false };
+    }
+  }, []);
+
+  /**
+   * Determine winner based on game type:
+   * - For 20-minute matches: Random winner selection (50/50 white/black), draw only if points exactly equal
+   * - For other matches: Points-based winner selection (whoever has more material wins), draw only if points exactly equal
+   */
   const determineWinnerByMaterial = useCallback((g: Chess): GameResult => {
     const { whitePoints, blackPoints } = getMaterialPoints(g);
-    if (whitePoints !== blackPoints) {
-      const winner = whitePoints > blackPoints ? 'white' : 'black';
-      return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
+    
+    if (is20MinMatch) {
+      // 20-minute matches: Random winner selection, draw only if points exactly equal
+      if (whitePoints === blackPoints) {
+        // Exactly equal points = draw
+        return { winner: 'draw', reason: 'time', result: '1/2-1/2' } as GameResult;
+      } else {
+        // Random winner selection (50/50 white/black)
+        const winner = Math.random() < 0.5 ? 'white' : 'black';
+        return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
+      }
     }
-
-    // Equal material: draw should be rare. Prefer a winner most of the time
-    const roll = Math.random();
-    if (roll < 0.03) {
+    
+    // Regular matches: Points-based winner selection (whoever has more material wins)
+    if (whitePoints > blackPoints) {
+      return { winner: 'white', reason: 'time', result: '1-0' } as GameResult;
+    } else if (blackPoints > whitePoints) {
+      return { winner: 'black', reason: 'time', result: '0-1' } as GameResult;
+    } else {
+      // Exactly equal points = draw
       return { winner: 'draw', reason: 'time', result: '1/2-1/2' } as GameResult;
     }
-    const winner = Math.random() < 0.5 ? 'white' : 'black';
-    return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
-  }, [getMaterialPoints]);
+  }, [getMaterialPoints, is20MinMatch]);
 
-  // On mount, restore persisted timer state or clear for new game
+  // On mount, restore persisted timer state only if game was actually running
   useEffect(() => {
     try {
       const savedElapsed = localStorage.getItem("bb_matchElapsedSeconds");
       const savedEndTime = localStorage.getItem("bb_matchEndTime");
-      if (savedElapsed) {
-        setMatchElapsedSeconds(parseInt(savedElapsed));
-      }
+      
+      // Only restore timer if game was actually ended (not just paused)
       if (savedEndTime) {
+        setMatchElapsedSeconds(parseInt(savedElapsed) || 0);
         setMatchEndTime(parseInt(savedEndTime));
+      } else {
+        // No saved end time means fresh start - reset timer
+        setMatchElapsedSeconds(0);
+        setMatchEndTime(null);
+        localStorage.removeItem("bb_matchElapsedSeconds");
       }
+      
       // Clear old keys
       localStorage.removeItem("bb_fen");
       localStorage.removeItem("bb_result");
     } catch {}
   }, []);
+
+  // Internet connectivity detection
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log("🌐 Internet reconnected - game can resume");
+      setIsOnline(true);
+    };
+
+    const handleOffline = () => {
+      console.log("📡 Internet disconnected - pausing game");
+      setIsOnline(false);
+      // Pause the game when internet disconnects (but don't set matchEndTime)
+      if (isPlaying) {
+        setIsPlaying(false);
+        aiChessService.cancelThinking();
+        setIsThinking(false);
+        setCurrentMoveStart(null);
+        setCurrentThinkingAgent(null);
+        setThinkingTime(0);
+        // Clear timer state from localStorage when pausing (not ending)
+        try {
+          localStorage.removeItem("bb_matchElapsedSeconds");
+        } catch {}
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [isPlaying]);
 
   // --- Pause when tab/window is hidden instead of resetting
   useEffect(() => {
@@ -106,12 +195,27 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     setCurrentThinkingAgent(null);
     setThinkingTime(0);
     
+    // Auto-restart if looping is enabled
+    if (isLooping) {
+      console.log("🔄 Auto-restarting match in 30 seconds... (Loop mode enabled)");
+      const timeoutId = setTimeout(() => {
+        console.log("🚀 Starting new match automatically (Loop mode)");
+        resetGame();
+        setIsPlaying(true);
+        setMatchStart(Date.now());
+        aiChessService.initializeMatch(3);
+      }, 30000); // 30 second delay
+      setLoopTimeoutId(timeoutId);
+    } else {
+      console.log("🏁 Game ended - Loop mode disabled, no auto-restart");
+    }
+    
     console.log("🏁 Game ended:", {
       result: gameResult,
       resultText: gameResult.result,
       timestamp: new Date().toISOString()
     });
-  }, [matchElapsedSeconds]);
+  }, [matchElapsedSeconds, isLooping]);
 
   /**
    * Make an AI move with proper timing and error handling
@@ -190,8 +294,12 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
           // Check if game ended after this move (checkmate, stalemate, draw)
           if (newGame.isCheckmate()) {
             const stats = aiChessService.getMatchStats();
-            if (stats.elapsedTime >= 20 * 60 * 1000) {
+            const minDurationMs = 5 * 60 * 1000; // Minimum 5 minutes
+            
+            // Allow checkmate if we've reached minimum duration (5 minutes)
+            if (stats.elapsedTime >= minDurationMs) {
               const winner = newGame.turn() === 'w' ? 'black' : 'white';
+              console.log(`🏆 Checkmate achieved after ${Math.floor(stats.elapsedTime/60000)}:${String(Math.floor((stats.elapsedTime%60000)/1000)).padStart(2,'0')} - ${winner} wins!`);
               handleGameEnd({
                 winner,
                 reason: 'checkmate',
@@ -199,20 +307,23 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
               });
               return;
             } else {
-              // Before 20 minutes, do not end even if a checkmate position is reached
-              console.log('⏳ Checkmate detected before 20:00, continuing');
+              // Before minimum duration, continue playing (don't end on premature checkmate)
+              console.log(`⏳ Checkmate detected before 5:00, continuing`);
             }
           }
           
-          // Handle stalemate/draw: at/after 20:00 adjudicate a WINNER, otherwise continue
+          // Handle stalemate/draw: at/after minimum duration adjudicate a WINNER, otherwise continue
           if (newGame.isStalemate() || newGame.isDraw()) {
             const stats = aiChessService.getMatchStats();
-            if (stats.elapsedTime >= 20 * 60 * 1000) {
+            const minDurationMs = 5 * 60 * 1000; // Minimum 5 minutes
+            
+            if (stats.elapsedTime >= minDurationMs) {
               const adjudicated = determineWinnerByMaterial(newGame);
+              console.log(`⏰ Draw/stalemate after ${Math.floor(stats.elapsedTime/60000)}:${String(Math.floor((stats.elapsedTime%60000)/1000)).padStart(2,'0')} - adjudicating winner`);
               handleGameEnd(adjudicated);
               return;
             } else {
-              console.log("🔄 Draw/stalemate detected before 20:00 - continuing play for checkmate");
+              console.log(`🔄 Draw/stalemate detected before 5:00 - continuing play for checkmate`);
               return;
             }
           }
@@ -222,10 +333,17 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
       } else {
         console.log("⏳ No move returned (time limit or game end)");
         
-        // Check if time limit reached - but continue playing for checkmate
+        // Check if time limit reached - adjudicate winner when 20 minutes is reached
         const stats = aiChessService.getMatchStats();
-        if (stats.timeRemaining <= 0) {
-          console.log("⏰ Time limit reached - continuing play for checkmate");
+        const maxDurationMs = 20 * 60 * 1000; // 20 minutes
+        
+        if (stats.elapsedTime >= maxDurationMs) {
+          console.log(`⏰ 20-minute time limit reached - adjudicating winner`);
+          const adjudicated = determineWinnerByMaterial(game);
+          handleGameEnd(adjudicated);
+          return;
+        } else {
+          console.log(`⏰ Time limit reached - continuing play for checkmate`);
           // Game continues - AI will play faster to achieve checkmate
           return;
         }
@@ -261,7 +379,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     }
   }, [game.fen(), isPlaying, isThinking, agent1, agent2, makeAiMove]);
 
-  // Match clock: counts up from 0 (no longer ends the match on time; we finish by checkmate)
+  // Match clock: counts up from 0 to 20 minutes (1200 seconds) for countdown display
   useEffect(() => {
     if (!isPlaying) return;
     
@@ -274,7 +392,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     
     const t = setInterval(() => {
       setMatchElapsedSeconds((prev) => {
-        const newTime = Math.min(prev + 1, MATCH_LIMIT_SECONDS);
+        const newTime = Math.min(prev + 1, 1200); // Always count up to 20 minutes (1200 seconds)
         saveTimer();
         return newTime;
       });
@@ -297,20 +415,26 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     return () => clearInterval(interval);
   }, [isThinking, currentMoveStart]);
 
-  // Hard cap at 20:00 — adjudicate result (prefer wins; draws rare)
+  // Hard cap at 20 minutes — adjudicate result (prefer wins; draws rare)
   useEffect(() => {
     if (!isPlaying) return;
     if (game.isCheckmate()) return;
-    if (matchElapsedSeconds >= MATCH_LIMIT_SECONDS) {
+    if (matchElapsedSeconds >= 1200) { // 20 minutes = 1200 seconds
       const res = determineWinnerByMaterial(game);
       handleGameEnd(res);
     }
-  }, [isPlaying, matchElapsedSeconds, MATCH_LIMIT_SECONDS, game, determineWinnerByMaterial, handleGameEnd]);
+  }, [isPlaying, matchElapsedSeconds, game, determineWinnerByMaterial, handleGameEnd]);
 
   /**
    * Toggle play/pause with proper state management
    */
   const togglePlayPause = () => {
+    // Don't allow starting game when offline
+    if (!isOnline && !isPlaying) {
+      console.log("📡 Cannot start game - no internet connection");
+      return;
+    }
+
     const newPlayingState = !isPlaying;
     setIsPlaying(newPlayingState);
     
@@ -318,35 +442,71 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
       // Resume: start match timer and initialize AI service
       setMatchStart(Date.now());
       if (matchElapsedSeconds === 0) {
-        // fresh start
+        // Generate random game duration for fresh start
+        const { duration, is20Min } = generateRandomGameDuration();
+        setCurrentGameDuration(duration);
+        setIs20MinMatch(is20Min);
+        console.log(`🎲 Generated random game duration: ${Math.floor(duration/60)}:${String(duration%60).padStart(2,'0')} ${is20Min ? '(20-min match - random winner)' : '(variable match - points-based winner)'}`);
       }
       aiChessService.initializeMatch(3); // Default difficulty 3
     } else {
-      // Pause: stop thinking timer and clear current move
+      // Pause: stop thinking timer and clear current move immediately
+      console.log("⏸️ Pausing game - stopping timer and AI moves immediately");
       aiChessService.cancelThinking(); // interrupt any in-flight delay immediately
       setIsThinking(false);
       setCurrentMoveStart(null);
       setCurrentThinkingAgent(null);
       setThinkingTime(0);
+      // Clear timer state from localStorage when pausing (not ending)
+      try {
+        localStorage.removeItem("bb_matchElapsedSeconds");
+      } catch {}
     }
     
     console.log("🎮 Game state changed:", {
       isPlaying: newPlayingState,
       agent1: agent1?.name,
       agent2: agent2?.name,
+      currentGameDuration: currentGameDuration,
+      isOnline: isOnline,
       timestamp: new Date().toISOString()
     });
+  };
+
+  /**
+   * Toggle loop mode
+   */
+  const toggleLoop = () => {
+    const newLoopingState = !isLooping;
+    setIsLooping(newLoopingState);
+    
+    // Clear existing timeout if disabling loop
+    if (!newLoopingState && loopTimeoutId) {
+      clearTimeout(loopTimeoutId);
+      setLoopTimeoutId(null);
+      console.log("🛑 Loop disabled - auto-restart cancelled");
+    } else if (newLoopingState) {
+      console.log("🔄 Loop enabled - matches will auto-restart after natural game end");
+    }
   };
 
   /**
    * Reset the game completely
    */
   const resetGame = () => {
-    console.log("🔄 Resetting game:", {
+    console.log("🔄 Manually resetting game:", {
       previousFen: game.fen(),
       previousHistory: game.history(),
+      isLooping,
       timestamp: new Date().toISOString()
     });
+    
+    // Clear loop timeout if exists
+    if (loopTimeoutId) {
+      clearTimeout(loopTimeoutId);
+      setLoopTimeoutId(null);
+      console.log("🛑 Cleared existing loop timeout");
+    }
     
     setGame(new Chess());
     setIsPlaying(false);
@@ -360,6 +520,12 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     setMatchElapsedSeconds(0);
     setMatchEndTime(null);
     
+    // Generate new random game duration for next game
+    const { duration, is20Min } = generateRandomGameDuration();
+    setCurrentGameDuration(duration);
+    setIs20MinMatch(is20Min);
+    console.log(`🎲 Reset: Generated new random game duration: ${Math.floor(duration/60)}:${String(duration%60).padStart(2,'0')} ${is20Min ? '(20-min match - random winner)' : '(variable match - points-based winner)'}`);
+    
     // Clear persisted timer state
     try {
       localStorage.removeItem("bb_matchElapsedSeconds");
@@ -368,6 +534,8 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     
     // Reset AI service
     aiChessService.reset();
+    
+    console.log("✅ Game reset complete - Loop mode:", isLooping);
   };
 
   /**
@@ -389,10 +557,15 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     thinkingTime,
     matchElapsedSeconds,
     matchEndTime,
+    isLooping,
+    currentGameDuration,
+    is20MinMatch,
+    isOnline,
     matchLimitSeconds: MATCH_LIMIT_SECONDS,
     whitePoints: getMaterialPoints(game).whitePoints,
     blackPoints: getMaterialPoints(game).blackPoints,
     togglePlayPause,
+    toggleLoop,
     resetGame,
     setDifficulty,
     matchStats: aiChessService.getMatchStats()

@@ -1,4 +1,4 @@
-import { Play, Pause, RotateCcw } from "lucide-react";
+import { Play, Pause, RotateCcw, Repeat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Agent } from "@/types/chess";
 
@@ -8,8 +8,11 @@ interface MatchStatusProps {
   isPlaying: boolean;
   currentTurn: "white" | "black";
   result: string | null;
+  isLooping: boolean;
+  isOnline: boolean;
   onPlayPause: () => void;
   onReset: () => void;
+  onToggleLoop: () => void;
 }
 
 export const MatchStatus = ({
@@ -18,8 +21,11 @@ export const MatchStatus = ({
   isPlaying,
   currentTurn,
   result,
+  isLooping,
+  isOnline,
   onPlayPause,
   onReset,
+  onToggleLoop,
 }: MatchStatusProps) => {
 
   return (
@@ -66,14 +72,28 @@ export const MatchStatus = ({
               variant="outline"
               size="icon"
               onClick={onPlayPause}
-              disabled={!agent1 || !agent2}
+              disabled={!agent1 || !agent2 || (!isOnline && !isPlaying)}
               className="border-border hover:bg-secondary"
+              title={!isOnline && !isPlaying ? "Cannot start game - no internet connection" : ""}
             >
               {isPlaying ? (
                 <Pause className="w-4 h-4" />
               ) : (
                 <Play className="w-4 h-4 ml-0.5" />
               )}
+            </Button>
+
+            <Button
+              variant={isLooping ? "default" : "outline"}
+              size="icon"
+              onClick={onToggleLoop}
+              disabled={!agent1 || !agent2}
+              className={`border-border hover:bg-secondary ${
+                isLooping ? "bg-primary text-primary-foreground" : ""
+              }`}
+              title={isLooping ? "Disable auto-restart" : "Enable auto-restart (30s delay)"}
+            >
+              <Repeat className="w-4 h-4" />
             </Button>
 
             <Button
