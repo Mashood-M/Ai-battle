@@ -4,6 +4,21 @@ import { Agent, ApiKeys } from "@/types/chess";
 import { aiChessService } from "@/services/aiChessService";
 import type { GameResult } from "@/services/aiChessService";
 
+function computeMaterialScore(g: Chess) {
+  const board = g.board();
+  const pieceValue: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  let whitePoints = 0;
+  let blackPoints = 0;
+  for (const rank of board) {
+    for (const sq of rank) {
+      if (!sq) continue;
+      const value = pieceValue[sq.type] ?? 0;
+      if (sq.color === 'w') whitePoints += value; else blackPoints += value;
+    }
+  }
+  return { whitePoints, blackPoints };
+}
+
 export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKeys: ApiKeys) => {
   const [game, setGame] = useState(new Chess());
   const [isPlaying, setIsPlaying] = useState(false);
@@ -27,20 +42,7 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
   }, [getMaterialPoints]);
 
-  const getMaterialPoints = useCallback((g: Chess) => {
-    const board = g.board();
-    const values: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-    let white = 0;
-    let black = 0;
-    for (const rank of board) {
-      for (const sq of rank) {
-        if (!sq) continue;
-        const v = values[sq.type] ?? 0;
-        if (sq.color === 'w') white += v; else black += v;
-      }
-    }
-    return { white, black };
-  }, []);
+  const getMaterialPoints = useCallback((g: Chess) => computeMaterialScore(g), []);
 
   // On mount, ensure any previous persisted state is cleared so refresh starts a new game
   useEffect(() => {
@@ -370,8 +372,8 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
     thinkingTime,
     matchElapsedSeconds,
     matchLimitSeconds: MATCH_LIMIT_SECONDS,
-    whitePoints: getMaterialPoints(game).white,
-    blackPoints: getMaterialPoints(game).black,
+    whitePoints: getMaterialPoints(game).whitePoints,
+    blackPoints: getMaterialPoints(game).blackPoints,
     togglePlayPause,
     resetGame,
     setDifficulty,
