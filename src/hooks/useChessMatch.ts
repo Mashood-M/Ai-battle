@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Chess } from "chess.js";
 import { Agent, ApiKeys } from "@/types/chess";
-import { aiChessService, GameResult } from "@/services/aiChessService";
+import { aiChessService } from "@/services/aiChessService";
+import type { GameResult } from "@/services/aiChessService";
 
 export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKeys: ApiKeys) => {
   const [game, setGame] = useState(new Chess());
