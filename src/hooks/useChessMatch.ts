@@ -43,13 +43,13 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
 
   /**
    * Generate random game duration based on the specified distribution:
-   * - Randomly 1-5 matches end at exactly 20 minutes (1200 seconds)
-   * - Other matches: 80% chance 10-15 minutes, 15% chance 5-8 minutes, 5% chance 8-10 minutes
+   * - 10% of matches end at exactly 20 minutes (1200 seconds)
+   * - 90% regular matches: 80% chance 10-15 minutes, 15% chance 5-8 minutes, 5% chance 8-10 minutes
    * - Minimum duration: 5 minutes (300 seconds)
    */
   const generateRandomGameDuration = useCallback((): { duration: number; is20Min: boolean } => {
-    // Randomly decide if this should be a 20-minute match (1-5 chance)
-    const shouldBe20Min = Math.random() < 0.2; // 20% chance = roughly 1 in 5 matches
+    // 10% chance for 20-minute matches
+    const shouldBe20Min = Math.random() < 0.1; // 10% chance
     
     if (shouldBe20Min) {
       return { duration: 1200, is20Min: true }; // Exactly 20 minutes
@@ -72,35 +72,29 @@ export const useChessMatch = (agent1: Agent | null, agent2: Agent | null, apiKey
 
   /**
    * Determine winner based on game type:
-   * - For 20-minute matches: Random winner selection (50/50 white/black), draw only if points exactly equal AND at 20-minute time limit
-   * - For other matches: Points-based winner selection (whoever has more material wins), NO DRAWS - always pick a winner
+   * - Checkmate always wins regardless of match type or material points
+   * - For 20-minute matches: Material points determine winner, draw if points exactly equal
+   * - For regular matches: Material points determine winner, draw if points exactly equal
    */
   const determineWinnerByMaterial = useCallback((g: Chess): GameResult => {
-    const { whitePoints, blackPoints } = getMaterialPoints(g);
-    
-    if (is20MinMatch) {
-      // 20-minute matches: Random winner selection, draw only if points exactly equal
-      if (whitePoints === blackPoints) {
-        // Exactly equal points = draw (only at 20-minute time limit)
-        return { winner: 'draw', reason: 'time', result: '1/2-1/2' } as GameResult;
-      } else {
-        // Random winner selection (50/50 white/black)
-        const winner = Math.random() < 0.5 ? 'white' : 'black';
-        return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
-      }
+    // Checkmate always wins regardless of match type
+    if (g.isCheckmate()) {
+      const winner = g.turn() === 'w' ? 'black' : 'white';
+      return { winner, reason: 'checkmate', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
     }
     
-    // Regular matches: Points-based winner selection, NO DRAWS - always pick a winner
+    const { whitePoints, blackPoints } = getMaterialPoints(g);
+    
+    // Both match types use material points - no random selection
     if (whitePoints > blackPoints) {
       return { winner: 'white', reason: 'time', result: '1-0' } as GameResult;
     } else if (blackPoints > whitePoints) {
       return { winner: 'black', reason: 'time', result: '0-1' } as GameResult;
     } else {
-      // Exactly equal points - pick random winner instead of draw
-      const winner = Math.random() < 0.5 ? 'white' : 'black';
-      return { winner, reason: 'time', result: winner === 'white' ? '1-0' : '0-1' } as GameResult;
+      // Exactly equal points = draw
+      return { winner: null, reason: 'draw', result: '1/2-1/2' } as GameResult;
     }
-  }, [getMaterialPoints, is20MinMatch]);
+  }, [getMaterialPoints]);
 
   // On mount, restore persisted timer state only if game was actually running
   useEffect(() => {
